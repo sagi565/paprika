@@ -1,0 +1,9 @@
+# Netlify serves the React app and proxies /api/* to the Render backend (same origin,
+# so the login cookie just works). Set API_ORIGIN in Netlify's environment variables.
+[build]
+  base = "frontend"
+  command = "node scripts/write-redirects.mjs && npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"

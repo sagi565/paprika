@@ -1,0 +1,24 @@
+# Render blueprint for the API (FastAPI). The database is on Neon; the frontend on Netlify.
+services:
+  - type: web
+    name: paprika-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL # Neon connection string, entered in the Render dashboard
+        sync: false
+      - key: ADMIN_PASSWORD # the site's login password, entered in the Render dashboard
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: SEED_DEMO
+        value: "false"
+      - key: GROW_MODE
+        value: mock
