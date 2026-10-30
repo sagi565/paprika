@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { api, type Client, type ClientInput, type ImportResult } from "../api";
+import { WhatsAppIcon } from "../components/icons";
 import { Modal } from "../components/Modal";
 import { toast, toastError } from "../components/toast";
-import { formatPhone } from "../format";
+import { formatPhone, whatsappNumber } from "../format";
 
 const EMPTY: ClientInput = {
   name: "",
@@ -177,6 +178,7 @@ function ClientModal({ client, onClose, onSaved }: { client: Client | null; onCl
   const [form, setForm] = useState<ClientInput>(() => (client ? { ...EMPTY, ...pickInput(client) } : EMPTY));
   const [hasCard, setHasCard] = useState(client?.has_card_token ?? false);
   const [cardUrl, setCardUrl] = useState<string | null>(null);
+  const [cardBusy, setCardBusy] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const set = <K extends keyof ClientInput>(key: K, value: ClientInput[K]) => setForm((f) => ({ ...f, [key]: value }));
@@ -202,11 +204,35 @@ function ClientModal({ client, onClose, onSaved }: { client: Client | null; onCl
 
   const saveCard = async () => {
     if (!client) return;
+    setCardBusy(true);
     try {
       const res = await api.saveCard(client.id);
       setHasCard(res.has_card_token);
       setCardUrl(res.url);
       if (res.has_card_token) toast("הכרטיס נשמר");
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setCardBusy(false);
+    }
+  };
+
+  const copyCardUrl = async () => {
+    if (!cardUrl) return;
+    try {
+      await navigator.clipboard.writeText(cardUrl);
+      toast("הקישור הועתק");
+    } catch {
+      window.prompt("העתיקו את הקישור:", cardUrl);
+    }
+  };
+
+  const checkCard = async () => {
+    if (!client) return;
+    try {
+      const fresh = await api.client(client.id);
+      setHasCard(fresh.has_card_token);
+      toast(fresh.has_card_token ? "הכרטיס נשמר" : "עוד לא נשמר כרטיס", fresh.has_card_token ? "ok" : "error");
     } catch (err) {
       toastError(err);
     }
@@ -263,30 +289,34 @@ function ClientModal({ client, onClose, onSaved }: { client: Client | null; onCl
           <span>שם הגננת</span>
           <input {...text("contact_name")} />
         </label>
-        <label className="field">
-          <span>טלפון (לוואטסאפ ולחשבונית) *</span>
+        <label className={client ? "field" : "field span-2"}>
+          <span>טלפון *</span>
           <input required inputMode="tel" dir="ltr" {...text("phone")} />
         </label>
-        <label className="field">
-          <span>מייל</span>
-          <input type="email" dir="ltr" {...text("email")} />
-        </label>
-        <label className="field">
-          <span>שם לחשבונית</span>
-          <input {...text("invoice_name")} placeholder="אם שונה משם הגן" />
-        </label>
-        <label className="field">
-          <span>ח.פ / ע.מ</span>
-          <input inputMode="numeric" {...text("tax_id")} />
-        </label>
-        <label className="field span-2">
-          <span>כתובת</span>
-          <input {...text("address")} />
-        </label>
-        <label className="field span-2">
-          <span>הערות</span>
-          <textarea rows={2} {...text("notes")} />
-        </label>
+        {client && (
+          <>
+            <label className="field">
+              <span>מייל</span>
+              <input type="email" dir="ltr" {...text("email")} />
+            </label>
+            <label className="field">
+              <span>שם לחשבונית</span>
+              <input {...text("invoice_name")} placeholder="אם שונה משם הגן" />
+            </label>
+            <label className="field">
+              <span>ח.פ / ע.מ</span>
+              <input inputMode="numeric" {...text("tax_id")} />
+            </label>
+            <label className="field span-2">
+              <span>כתובת</span>
+              <input {...text("address")} />
+            </label>
+            <label className="field span-2">
+              <span>הערות</span>
+              <textarea rows={2} {...text("notes")} />
+            </label>
+          </>
+        )}
         {client && (
           <label className="check span-2">
             <input type="checkbox" checked={form.active} onChange={(e) => set("active", e.target.checked)} />
@@ -296,31 +326,58 @@ function ClientModal({ client, onClose, onSaved }: { client: Client | null; onCl
       </form>
 
       {client && (
-        <div className="card-box">
-          <div>
-            <strong>כרטיס אשראי ב-Grow</strong>
-            <p className="sub">{hasCard ? "שמור. אפשר לחייב בלי להקליד פרטים." : "לא שמור. אי אפשר לחייב אוטומטית."}</p>
-            {cardUrl && (
+        <div className="card-box-wrap">
+          <div className="card-box">
+            <div>
+              <strong>כרטיס אשראי ב-Grow</strong>
               <p className="sub">
-                שלחו לגננת את הקישור לשמירת הכרטיס:{" "}
-                <a href={cardUrl} target="_blank" rel="noreferrer">
-                  {cardUrl}
-                </a>
+                {hasCard ? "שמור. אפשר לחייב בלי להקליד פרטים." : "לא שמור. אי אפשר לחייב אוטומטית."}
               </p>
+            </div>
+            {hasCard ? (
+              <button type="button" className="btn btn-sm" onClick={removeCard}>
+                הסרה
+              </button>
+            ) : (
+              <button type="button" className="btn btn-sm" onClick={saveCard} disabled={cardBusy}>
+                {cardBusy ? "יוצר קישור…" : cardUrl ? "קישור חדש" : "שמירת כרטיס"}
+              </button>
             )}
           </div>
-          {hasCard ? (
-            <button type="button" className="btn btn-sm" onClick={removeCard}>
-              הסרה
-            </button>
-          ) : (
-            <button type="button" className="btn btn-sm" onClick={saveCard}>
-              שמירת כרטיס
-            </button>
+          {cardUrl && !hasCard && (
+            <div className="card-link">
+              <p className="sub">
+                שלחו לגננת את הקישור. אחרי שהיא תזין כרטיס בדף המאובטח של Grow, הוא יישמר כאן אוטומטית.
+              </p>
+              <div className="card-link-actions">
+                <a
+                  className="btn btn-sm btn-whatsapp"
+                  href={`https://wa.me/${whatsappNumber(client.phone)}?text=${encodeURIComponent(cardLinkMessage(client, cardUrl))}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <WhatsAppIcon /> שליחה לגננת
+                </a>
+                <button type="button" className="btn btn-sm" onClick={copyCardUrl}>
+                  העתקת קישור
+                </button>
+                <button type="button" className="link-btn" onClick={checkCard}>
+                  בדיקה אם נשמר
+                </button>
+              </div>
+            </div>
           )}
         </div>
       )}
     </Modal>
+  );
+}
+
+function cardLinkMessage(c: Client, url: string): string {
+  const hello = c.contact_name ? `שלום ${c.contact_name},` : "שלום,";
+  return (
+    `${hello} כדי שנוכל לחייב את החשבון החודשי של ${c.name} אוטומטית, ` +
+    `אפשר לשמור כרטיס אשראי בדף המאובטח של Grow: ${url}\nתודה, פפריקה פירות וירקות`
   );
 }
 

@@ -39,6 +39,16 @@ def pdf_to_png(pdf: bytes) -> bytes:
     return buf.getvalue()
 
 
+def document_to_png(data: bytes) -> bytes:
+    """Invoice from Grow, as PDF or as an image, to a PNG."""
+    if data[:5] == b"%PDF-":
+        return pdf_to_png(data)
+    with Image.open(io.BytesIO(data)) as img:  # raises if it isn't an image either
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, "PNG", optimize=True)
+    return buf.getvalue()
+
+
 def make_thumbnail(png: bytes) -> bytes:
     with Image.open(io.BytesIO(png)) as img:
         img.thumbnail((THUMB_WIDTH, THUMB_WIDTH * 2))

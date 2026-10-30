@@ -20,5 +20,16 @@ services:
         value: "true"
       - key: SEED_DEMO
         value: "false"
+      - key: PUBLIC_URL # the Netlify address, e.g. https://paprika-fruits.netlify.app
+        sync: false
+      # Grow: GROW_MODE=mock until the sandbox details arrive, then live.
       - key: GROW_MODE
         value: mock
+      - key: GROW_BASE_URL # sandbox first; production after Grow's review
+        value: https://sandbox.meshulam.co.il/api/light/server/1.0
+      - key: GROW_USER_ID
+        sync: false
+      - key: GROW_PAGE_CODE
+        sync: false
+      - key: GROW_WEBHOOK_KEY
+        generateValue: true

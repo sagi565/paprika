@@ -36,21 +36,20 @@ To start over: `docker compose down -v` (deletes the database and invoice images
 If the server restarts in the middle of a charge, that row becomes **נכשל** with a
 note to check Grow before charging again.
 
-## What is still missing: Grow
+## Grow
 
 `GROW_MODE=mock` simulates Grow end to end (fake transactions, sample invoice).
-The real integration is `LiveGrowGateway` in
-[backend/app/services/grow.py](backend/app/services/grow.py). Fill in three methods:
+`GROW_MODE=live` uses `LiveGrowGateway` in [backend/app/services/grow.py](backend/app/services/grow.py):
 
-| Method | What it should do |
+| Step | Grow API |
 |---|---|
-| `charge_with_token` | `createTransactionWithToken` with the saved token and the amount; raise `ChargeFailed("<Hebrew reason>")` on decline |
-| `fetch_invoice_pdf` | download the invoice PDF for the transaction (ask Grow where the document link comes from) |
-| `start_card_save` | `createPaymentProcess` with `chargeType=3`, `saveCardToken=1`; return the page URL |
+| Save a card (once per kindergarten) | `createPaymentProcess` with `chargeType=3`, `saveCardToken=1`; the page link is sent to the teacher on WhatsApp. Grow posts the token to `/api/grow/notify` (client id + HMAC in `cField1`/`cField2`). |
+| Monthly charge | `createTransactionWithToken`, `paymentType=2`; `transactionGroupIdentifier` = charge id, so Grow rejects a second successful charge of the same row |
+| Invoice | Grow posts `invoiceUrl` to `/api/grow/invoice-notify`; the PDF/image is turned into the PNG sent on WhatsApp |
 
-Plus the webhook stub in [backend/app/routers/grow_webhook.py](backend/app/routers/grow_webhook.py)
-(Grow sends the saved token there). Then set `GROW_MODE=live` and the `GROW_*` values.
-Everything else (PDF → PNG, storage, statuses, UI) already works.
+Webhook URLs carry `?key=GROW_WEBHOOK_KEY`. Still to confirm with Grow (see TODOs in
+`grow.py`): whether token charges send `invoiceNotifyUrl` invoices, and the
+`transactionUniqueIdentifier` size.
 
 Docs: https://developers.grow.business
 

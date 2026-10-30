@@ -1,7 +1,9 @@
 import csv
 import io
+import logging
 import re
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from pydantic import ValidationError
 from sqlalchemy import func, or_, select
@@ -11,8 +13,9 @@ from ..auth import require_auth
 from ..db import get_db
 from ..models import Charge, Client
 from ..schemas import CardSaveOut, ClientIn, ClientOut, ImportResult
-from ..services.grow import CustomerInfo, get_gateway
+from ..services.grow import ChargeFailed, CustomerInfo, get_gateway
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/clients", tags=["clients"], dependencies=[Depends(require_auth)])
 
 MAX_IMPORT_BYTES = 1_000_000
@@ -147,12 +150,16 @@ def import_clients(file: UploadFile, db: Session = Depends(get_db)):
 @router.post("/{client_id}/card", response_model=CardSaveOut)
 def start_card_save(client_id: int, db: Session = Depends(get_db)):
     """Start saving the client's card in Grow. Mock mode saves a fake token immediately;
-    live mode is expected to return a Grow page URL for the client to fill in."""
+    live mode returns a Grow page URL for the kindergarten to fill in. The token then
+    arrives through Grow's notification (routers/grow_webhook.py)."""
     client = _get_client(db, client_id)
     try:
-        result = get_gateway().start_card_save(CustomerInfo.of(client))
-    except NotImplementedError:
-        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "שמירת כרטיס דרך Grow עוד לא מומשה") from None
+        result = get_gateway().start_card_save(client.id, CustomerInfo.of(client))
+    except ChargeFailed as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    except httpx.HTTPError:
+        log.exception("Grow card-save request failed (client %s)", client_id)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "לא הצלחנו להתחבר ל-Grow. נסו שוב.") from None
     if result.token:
         client.grow_card_token = result.token
         db.commit()

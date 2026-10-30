@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, joinedload
 from ..db import SessionLocal
 from ..models import Charge, ChargeStatus, Client
 from . import invoices
-from .grow import ChargeFailed, ChargeRequest, CustomerInfo, dump_raw, get_gateway
+from .grow import ChargeFailed, ChargeRequest, CustomerInfo, InvoiceNotReady, dump_raw, get_gateway
 
 log = logging.getLogger(__name__)
 
@@ -92,6 +92,7 @@ def process_charge(charge_id: int) -> None:
                 raise ChargeFailed("אין כרטיס שמור לגן הזה")
             result = gateway.charge_with_token(
                 ChargeRequest(
+                    charge_id=ch.id,
                     card_token=ch.client.grow_card_token,
                     amount=ch.amount,
                     description=f"פירות וירקות, {month_label(ch.month)}",
@@ -100,10 +101,6 @@ def process_charge(charge_id: int) -> None:
             )
         except ChargeFailed as exc:
             ch.status, ch.error = ChargeStatus.FAILED, str(exc)
-            db.commit()
-            return
-        except NotImplementedError:
-            ch.status, ch.error = ChargeStatus.FAILED, "החיבור ל-Grow עוד לא הושלם"
             db.commit()
             return
         except Exception:
@@ -121,19 +118,27 @@ def process_charge(charge_id: int) -> None:
 
 
 def attach_invoice(db: Session, ch: Charge) -> None:
-    """Fetch the invoice PDF from Grow and store it as a PNG. Never fails the charge."""
+    """Fetch the invoice from Grow and store it as a PNG. Never fails the charge."""
     try:
         raw = json.loads(ch.grow_payload or "{}")
-        pdf = get_gateway().fetch_invoice_pdf(ch.grow_transaction_id or "", raw)
-        invoices.store_invoice(db, ch, invoices.pdf_to_png(pdf))
+        document = get_gateway().fetch_invoice(ch.grow_transaction_id or "", raw)
+        invoices.store_invoice(db, ch, invoices.document_to_png(document))
         ch.invoice_error = None
-    except NotImplementedError:
-        ch.invoice_error = "שליפת החשבונית מ-Grow עוד לא מומשה"
+    except InvoiceNotReady:
+        ch.invoice_error = "ממתינים לחשבונית מ-Grow"
     except Exception:
         log.exception("Fetching invoice failed (charge %s)", ch.id)
         db.rollback()
         ch.invoice_error = "לא הצלחנו להביא את החשבונית מ-Grow"
     db.commit()
+
+
+def attach_invoice_by_id(charge_id: int) -> None:
+    """For background tasks (e.g. Grow's invoice notification)."""
+    with SessionLocal() as db:
+        ch = db.get(Charge, charge_id)
+        if ch is not None:
+            attach_invoice(db, ch)
 
 
 def recover_interrupted(db: Session) -> None:

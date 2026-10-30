@@ -17,12 +17,20 @@ class Settings(BaseSettings):
     seed_demo: bool = False
     business_name: str = "פפריקה פירות וירקות"
 
-    # "mock" simulates Grow end to end; "live" uses LiveGrowGateway (not implemented yet).
+    # Public address of the site (e.g. https://paprika-fruits.netlify.app). Grow redirects
+    # customers there and sends its server-to-server notifications to <public_url>/api/grow/...
+    public_url: str = ""
+
+    # "mock" simulates Grow end to end; "live" talks to Grow (sandbox or production by base URL).
     grow_mode: Literal["mock", "live"] = "mock"
+    # Sandbox: https://sandbox.meshulam.co.il/api/light/server/1.0
+    # Production: https://secure.meshulam.co.il/api/light/server/1.0
     grow_base_url: str = ""
     grow_user_id: str = ""
     grow_page_code: str = ""
     grow_api_key: str = ""
+    # Secret in our webhook URLs, so only Grow (who got the URL from us) can call them.
+    grow_webhook_key: str = ""
 
     @field_validator("database_url")
     @classmethod

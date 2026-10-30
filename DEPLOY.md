@@ -53,5 +53,28 @@ Render ו-Netlify מושכים את הקוד מ-GitHub.
 ## אחר כך
 
 - **שהשרת לא יירדם (רשות):** ב-https://cron-job.org אפשר להגדיר בקשה כל 10 דקות לכתובת `https://<render>/api/health`. 750 השעות החינמיות בחודש של Render מספיקות לשרת אחד שדולק כל הזמן.
-- **Grow:** כשהחיבור יהיה מוכן, מעבירים ב-Render את `GROW_MODE` ל-`live`, ממלאים את משתני `GROW_*`, וכתובת ההתראות היא `https://<netlify>/api/grow/notify`.
+- **Grow, חיוב אמיתי:** ראו את הסעיף הבא.
+
+## 5. חיבור Grow (חיוב אמיתי)
+
+1. **פרטי Sandbox מ-Grow:** ב-Render, תחת Environment, ממלאים:
+   - `GROW_USER_ID`
+   - `GROW_PAGE_CODE`
+   - `PUBLIC_URL` = `https://paprika-fruits.netlify.app`
+   - `GROW_BASE_URL` כבר מוגדר ל-Sandbox.
+   - מעבירים את `GROW_MODE` ל-`live`.
+   - שומרים, ו-Render מעלה גרסה מחדש.
+2. **בדיקה ב-Sandbox:**
+   - בעמוד **גנים** פותחים גן, לוחצים **שמירת כרטיס** ואז **העתקת קישור**, ופותחים את הקישור.
+   - מזינים כרטיס בדיקה `4580000000000000`, חוזרים לאתר ולוחצים **בדיקה אם נשמר**. הסטטוס צריך להיות "שמור".
+   - בעמוד **חיובים** מזינים סכום ולוחצים **חיוב**.
+   - בודקים שהחשבונית מגיעה. אם לא, זו השאלה הפתוחה מול Grow.
+3. **Production:**
+   - שולחים ל-`support@grow.business` בקשה ל-Production review.
+   - אחרי האישור מחליפים ב-Render את `GROW_BASE_URL` ל-`https://secure.meshulam.co.il/api/light/server/1.0`, ואת `GROW_USER_ID` ו-`GROW_PAGE_CODE` לפרטי ה-Production.
+4. **לכל גן, פעם אחת:** בעמוד הגנים לוחצים **שמירת כרטיס** ואז **שליחה לגננת**. הקישור נשלח בוואטסאפ, הגננת מזינה את הכרטיס, והוא נשמר אוטומטית.
+
+כתובות ה-Webhook ש-Grow קורא אליהן נבנות אוטומטית מ-`PUBLIC_URL` ומ-`GROW_WEBHOOK_KEY` (ש-Render יוצר לבד):
+- שמירת כרטיס: `<PUBLIC_URL>/api/grow/notify?key=...`
+- חשבוניות: `<PUBLIC_URL>/api/grow/invoice-notify?key=...`
 - **גיבוי:** Neon שומר היסטוריה של מסד הנתונים. כדאי מדי פעם גם להוריד גיבוי עם `pg_dump`.

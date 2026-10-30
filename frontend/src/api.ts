@@ -185,6 +185,7 @@ export const api = {
 
   clients: (q: string, includeInactive: boolean) =>
     request<Client[]>(`/clients?${new URLSearchParams({ q, include_inactive: String(includeInactive) })}`),
+  client: (id: number) => request<Client>(`/clients/${id}`),
   createClient: (data: ClientInput) => request<Client>("/clients", json("POST", data)),
   updateClient: (id: number, data: ClientInput) => request<Client>(`/clients/${id}`, json("PUT", data)),
   deleteClient: (id: number) => request<void>(`/clients/${id}`, json("DELETE")),
