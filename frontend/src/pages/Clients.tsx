@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { api, type Client, type ClientInput, type ImportResult } from "../api";
-import { CheckIcon, WhatsAppIcon } from "../components/icons";
+import { CheckIcon } from "../components/icons";
 import { Modal } from "../components/Modal";
 import { toast, toastError } from "../components/toast";
-import { formatPhone, whatsappNumber } from "../format";
+import { formatPhone } from "../format";
 
 const EMPTY: ClientInput = {
   name: "",
@@ -319,16 +319,6 @@ function ClientModal({ client, onClose, onSaved }: { client: Client | null; onCl
     return () => clearInterval(t);
   }, [client, cardUrl, hasCard]);
 
-  const copyCardUrl = async () => {
-    if (!cardUrl) return;
-    try {
-      await navigator.clipboard.writeText(cardUrl);
-      toast("הקישור הועתק");
-    } catch {
-      window.prompt("העתיקו את הקישור:", cardUrl);
-    }
-  };
-
   const checkCard = async () => {
     if (!client) return;
     try {
@@ -456,18 +446,6 @@ function ClientModal({ client, onClose, onSaved }: { client: Client | null; onCl
                 <button type="button" className="link-btn" onClick={checkCard}>
                   בדיקה אם נשמר
                 </button>
-                <span className="sub">או:</span>
-                <a
-                  className="btn btn-sm btn-whatsapp"
-                  href={`https://wa.me/${whatsappNumber(client.phone)}?text=${encodeURIComponent(cardLinkMessage(client, cardUrl))}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <WhatsAppIcon /> שליחה לגננת שתמלא
-                </a>
-                <button type="button" className="btn btn-sm" onClick={copyCardUrl}>
-                  העתקת קישור
-                </button>
               </div>
             </div>
           )}
@@ -477,14 +455,6 @@ function ClientModal({ client, onClose, onSaved }: { client: Client | null; onCl
         </div>
       )}
     </Modal>
-  );
-}
-
-function cardLinkMessage(c: Client, url: string): string {
-  const hello = c.contact_name ? `שלום ${c.contact_name},` : "שלום,";
-  return (
-    `${hello} כדי שנוכל לחייב את החשבון החודשי של ${c.name} אוטומטית, ` +
-    `אפשר לשמור כרטיס אשראי בדף המאובטח של Grow: ${url}\nתודה, פפריקה פירות וירקות`
   );
 }
 
