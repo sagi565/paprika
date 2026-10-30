@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { api, type Client, type ClientInput, type ImportResult } from "../api";
-import { WhatsAppIcon } from "../components/icons";
+import { CheckIcon, WhatsAppIcon } from "../components/icons";
 import { Modal } from "../components/Modal";
 import { toast, toastError } from "../components/toast";
 import { formatPhone, whatsappNumber } from "../format";
@@ -19,6 +19,26 @@ const EMPTY: ClientInput = {
 
 const CSV_TEMPLATE = "﻿שם הגן,שם הגננת,טלפון,מייל,שם לחשבונית,ח.פ,כתובת,הערות\nגן לדוגמה,רונית,050-1234567,,,,,\n";
 
+/**
+ * Creates Grow's card page and shows it in `tab` (opened by the caller during the click).
+ * The card number and ID are typed only on Grow's page; they never pass through this site.
+ */
+async function startCardFill(c: Client, tab: Window | null): Promise<string | null> {
+  const res = await api.saveCard(c.id);
+  if (res.has_card_token || !res.url) {
+    tab?.close(); // demo mode saves a token without a page
+    toast(`הכרטיס של ${c.name} נשמר`);
+    return null;
+  }
+  if (tab) {
+    tab.opener = null;
+    tab.location.href = res.url;
+  } else {
+    window.location.href = res.url; // popup blocked: continue in this tab
+  }
+  return res.url;
+}
+
 function downloadTemplate() {
   const url = URL.createObjectURL(new Blob([CSV_TEMPLATE], { type: "text/csv;charset=utf-8" }));
   const a = Object.assign(document.createElement("a"), { href: url, download: "gans-template.csv" });
@@ -32,7 +52,10 @@ export function Clients() {
   const [list, setList] = useState<Client[] | null>(null);
   const [editing, setEditing] = useState<Client | "new" | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [onlyNoCard, setOnlyNoCard] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const noCardCount = list?.filter((c) => !c.has_card_token).length ?? 0;
+  const shown = (list ?? []).filter((c) => !onlyNoCard || !c.has_card_token);
 
   const load = useCallback(() => {
     api.clients(query, showInactive).then(setList, toastError);
@@ -42,6 +65,38 @@ export function Clients() {
     const t = setTimeout(load, 200);
     return () => clearTimeout(t);
   }, [load]);
+
+  // Kindergartens whose Grow card page is open: refresh until the token arrives.
+  const [waiting, setWaiting] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    if (!waiting.size) return;
+    const t = setInterval(load, 4000);
+    const stop = setTimeout(() => setWaiting(new Set()), 15 * 60 * 1000);
+    return () => {
+      clearInterval(t);
+      clearTimeout(stop);
+    };
+  }, [waiting.size, load]);
+  useEffect(() => {
+    if (!list || !waiting.size) return;
+    const saved = list.filter((c) => waiting.has(c.id) && c.has_card_token);
+    if (!saved.length) return;
+    saved.forEach((c) => toast(`הכרטיס של ${c.name} נשמר`));
+    setWaiting((w) => new Set([...w].filter((id) => !saved.some((c) => c.id === id))));
+  }, [list, waiting]);
+
+  const fillCard = async (c: Client) => {
+    // Open the tab right away (inside the click) so the browser doesn't block it.
+    const tab = window.open("", "_blank");
+    try {
+      const url = await startCardFill(c, tab);
+      if (url) setWaiting((w) => new Set(w).add(c.id));
+      else load();
+    } catch (err) {
+      tab?.close();
+      toastError(err);
+    }
+  };
 
   const importFile = async (file: File | undefined) => {
     if (!file) return;
@@ -89,6 +144,14 @@ export function Clients() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+          <div className="chips">
+            <button className={onlyNoCard ? "chip" : "chip chip-on"} onClick={() => setOnlyNoCard(false)}>
+              כל הגנים <span className="chip-count">{list?.length ?? 0}</span>
+            </button>
+            <button className={onlyNoCard ? "chip chip-on" : "chip"} onClick={() => setOnlyNoCard(true)}>
+              בלי כרטיס <span className="chip-count">{noCardCount}</span>
+            </button>
+          </div>
           <label className="check">
             <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
             הצגת גנים לא פעילים
@@ -97,18 +160,27 @@ export function Clients() {
 
         {!list ? (
           <p className="empty">טוען…</p>
-        ) : list.length === 0 ? (
-          <p className="empty">{query ? "אין תוצאות" : "עוד אין גנים. אפשר להוסיף אחד אחד או לייבא מקובץ."}</p>
+        ) : shown.length === 0 ? (
+          <p className="empty">
+            {onlyNoCard ? "לכל הגנים יש כרטיס שמור" : query ? "אין תוצאות" : "עוד אין גנים. אפשר להוסיף אחד אחד או לייבא מקובץ."}
+          </p>
         ) : (
           <div className="grid clients-grid">
             <div className="grid-row grid-head">
               <span className="c-name">גן</span>
               <span className="c-contact">גננת</span>
               <span className="c-phone">טלפון</span>
-              <span className="c-card">כרטיס</span>
+              <span className="c-card">כרטיס אשראי</span>
             </div>
-            {list.map((c) => (
-              <button key={c.id} className={c.active ? "grid-row row-btn" : "grid-row row-btn row-inactive"} onClick={() => setEditing(c)}>
+            {shown.map((c) => (
+              <div
+                key={c.id}
+                role="button"
+                tabIndex={0}
+                className={c.active ? "grid-row row-btn" : "grid-row row-btn row-inactive"}
+                onClick={() => setEditing(c)}
+                onKeyDown={(e) => e.key === "Enter" && e.target === e.currentTarget && setEditing(c)}
+              >
                 <span className="c-name">
                   <span className="name">{c.name}</span>
                   {!c.active && <span className="sub">לא פעיל</span>}
@@ -116,11 +188,27 @@ export function Clients() {
                 <span className="c-contact">{c.contact_name ?? "—"}</span>
                 <span className="c-phone mono">{formatPhone(c.phone)}</span>
                 <span className="c-card">
-                  <span className={c.has_card_token ? "badge badge-charged" : "badge badge-pending"}>
-                    {c.has_card_token ? "שמור" : "חסר"}
-                  </span>
+                  {c.has_card_token ? (
+                    <span className="badge badge-sent">
+                      <CheckIcon size={14} /> שמור
+                    </span>
+                  ) : waiting.has(c.id) ? (
+                    <span className="badge badge-processing">
+                      <span className="spinner" aria-hidden /> ממתין למילוי
+                    </span>
+                  ) : (
+                    <button
+                      className="btn btn-sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        fillCard(c);
+                      }}
+                    >
+                      מילוי כרטיס
+                    </button>
+                  )}
                 </span>
-              </button>
+              </div>
             ))}
           </div>
         )}
@@ -202,20 +290,34 @@ function ClientModal({ client, onClose, onSaved }: { client: Client | null; onCl
     }
   };
 
-  const saveCard = async () => {
+  const fillCard = async () => {
     if (!client) return;
+    const tab = window.open("", "_blank"); // inside the click, so it isn't blocked
     setCardBusy(true);
     try {
-      const res = await api.saveCard(client.id);
-      setHasCard(res.has_card_token);
-      setCardUrl(res.url);
-      if (res.has_card_token) toast("הכרטיס נשמר");
+      const url = await startCardFill(client, tab);
+      if (url) setCardUrl(url);
+      else setHasCard(true);
     } catch (err) {
+      tab?.close();
       toastError(err);
     } finally {
       setCardBusy(false);
     }
   };
+
+  // While Grow's page is open in another tab, notice when the card arrives.
+  useEffect(() => {
+    if (!client || !cardUrl || hasCard) return;
+    const t = setInterval(async () => {
+      const fresh = await api.client(client.id).catch(() => null);
+      if (fresh?.has_card_token) {
+        setHasCard(true);
+        toast(`הכרטיס של ${client.name} נשמר`);
+      }
+    }, 4000);
+    return () => clearInterval(t);
+  }, [client, cardUrl, hasCard]);
 
   const copyCardUrl = async () => {
     if (!cardUrl) return;
@@ -339,34 +441,39 @@ function ClientModal({ client, onClose, onSaved }: { client: Client | null; onCl
                 הסרה
               </button>
             ) : (
-              <button type="button" className="btn btn-sm" onClick={saveCard} disabled={cardBusy}>
-                {cardBusy ? "יוצר קישור…" : cardUrl ? "קישור חדש" : "שמירת כרטיס"}
+              <button type="button" className="btn btn-sm btn-primary" onClick={fillCard} disabled={cardBusy}>
+                {cardBusy ? "פותח את Grow…" : cardUrl ? "פתיחה מחדש" : "מילוי כרטיס"}
               </button>
             )}
           </div>
           {cardUrl && !hasCard && (
             <div className="card-link">
               <p className="sub">
-                שלחו לגננת את הקישור. אחרי שהיא תזין כרטיס בדף המאובטח של Grow, הוא יישמר כאן אוטומטית.
+                <span className="spinner" aria-hidden /> הדף המאובטח של Grow נפתח בלשונית חדשה. ממלאים שם את מספר
+                הכרטיס, התוקף ות.ז של בעל הכרטיס. כשהכרטיס יישמר, הסטטוס כאן יתעדכן לבד.
               </p>
               <div className="card-link-actions">
+                <button type="button" className="link-btn" onClick={checkCard}>
+                  בדיקה אם נשמר
+                </button>
+                <span className="sub">או:</span>
                 <a
                   className="btn btn-sm btn-whatsapp"
                   href={`https://wa.me/${whatsappNumber(client.phone)}?text=${encodeURIComponent(cardLinkMessage(client, cardUrl))}`}
                   target="_blank"
                   rel="noreferrer"
                 >
-                  <WhatsAppIcon /> שליחה לגננת
+                  <WhatsAppIcon /> שליחה לגננת שתמלא
                 </a>
                 <button type="button" className="btn btn-sm" onClick={copyCardUrl}>
                   העתקת קישור
                 </button>
-                <button type="button" className="link-btn" onClick={checkCard}>
-                  בדיקה אם נשמר
-                </button>
               </div>
             </div>
           )}
+          <p className="footnote">
+            מספר הכרטיס ות.ז מוקלדים רק בדף של Grow, ולא עוברים דרך האתר הזה ולא נשמרים בו.
+          </p>
         </div>
       )}
     </Modal>

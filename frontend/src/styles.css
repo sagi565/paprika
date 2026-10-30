@@ -524,7 +524,7 @@ select {
   width: min(760px, 100%);
 }
 .clients-grid .grid-row {
-  grid-template-columns: 2fr 1.4fr 1.2fr 90px;
+  grid-template-columns: 2fr 1.4fr 1.2fr 160px;
   grid-template-areas: "name contact phone card";
 }
 .c-name {
