@@ -126,13 +126,17 @@ def _invoice_items(node) -> Iterator[dict]:
 async def grow_invoice_notify(
     request: Request, background: BackgroundTasks, key: str = "", db: Session = Depends(get_db)
 ):
-    """Grow issued an invoice: remember its link and turn it into the invoice image."""
+    """Grow issued an invoice: remember its link and turn it into the invoice image.
+
+    Serves both the API's invoiceNotifyUrl ({transactionId, invoiceUrl, ...}) and the
+    dashboard's "invoice created" webhook ({transactionCode, invoiceNumber, invoiceUrl}).
+    """
     _check_key(key)
     payload = await _read_payload(request)
     log.info("Grow invoice notify: %s", _redact(payload))
 
     for item in _invoice_items(payload):
-        transaction_id = str(item.get("transactionId") or "")
+        transaction_id = str(item.get("transactionId") or item.get("transactionCode") or "")
         if not transaction_id:
             continue
         ch = db.scalar(select(Charge).where(Charge.grow_transaction_id == transaction_id))
