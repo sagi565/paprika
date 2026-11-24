@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .config import settings
-from .db import Base, SessionLocal, engine
+from .db import Base, SessionLocal, add_missing_columns, engine
 from .routers import auth, charges, clients, dashboard, grow_webhook
 from .seed import seed_demo, seed_demo_history
 from .services.billing import recover_interrupted
@@ -16,6 +16,7 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(engine)
+    add_missing_columns()
     with SessionLocal() as db:
         recover_interrupted(db)
         import_legacy_files(db)

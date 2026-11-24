@@ -188,6 +188,11 @@ class ImportResult(BaseModel):
     errors: list[str]
 
 
+class CardSaveIn(BaseModel):
+    # Grow requires the customer's consent to keep the card for future charges.
+    consent: bool = False
+
+
 class CardSaveOut(BaseModel):
     has_card_token: bool
     url: str | None = None

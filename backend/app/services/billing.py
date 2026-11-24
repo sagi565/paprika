@@ -11,11 +11,24 @@ from sqlalchemy.orm import Session, joinedload
 from ..db import SessionLocal
 from ..models import Charge, ChargeStatus, Client
 from . import invoices
-from .grow import ChargeFailed, ChargeRequest, CustomerInfo, InvoiceNotReady, dump_raw, get_gateway
+from .grow import (
+    DUPLICATE_UNIQUE_ID,
+    ChargeFailed,
+    ChargeRequest,
+    ChargeResult,
+    CustomerInfo,
+    InvoiceNotReady,
+    dump_raw,
+    get_gateway,
+    new_unique_id,
+)
 
 log = logging.getLogger(__name__)
 
-UNKNOWN_OUTCOME = "לא ידוע אם החיוב בוצע. בדקו ב-Grow לפני שמחייבים שוב."
+# The row keeps its transactionUniqueIdentifier, so charging again is safe: if the first
+# attempt went through, Grow refuses the second and we look the first one up instead.
+UNKNOWN_OUTCOME = "החיבור ל-Grow נקטע ולא ידוע אם החיוב עבר. אפשר לחייב שוב: אם הוא כבר עבר, Grow לא יחייבו פעמיים."
+NOT_FOUND_AFTER_DUPLICATE = "הניסיון הקודם לא עבר ב-Grow. אפשר לחייב שוב."
 HEBREW_MONTHS = [
     "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
     "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר",
@@ -87,20 +100,32 @@ def process_charge(charge_id: int) -> None:
         if ch is None or ch.status != ChargeStatus.PROCESSING:
             return
         gateway = get_gateway()
+        card_token = ch.client.grow_card_token
+        if not card_token:
+            ch.status, ch.error = ChargeStatus.FAILED, "אין כרטיס שמור לגן הזה"
+            db.commit()
+            return
+        if ch.grow_unique_id is None:
+            # Saved before calling Grow, so a crash mid-request leaves it for the retry.
+            ch.grow_unique_id = new_unique_id()
+            db.commit()
         try:
-            if not ch.client.grow_card_token:
-                raise ChargeFailed("אין כרטיס שמור לגן הזה")
             result = gateway.charge_with_token(
                 ChargeRequest(
                     charge_id=ch.id,
-                    card_token=ch.client.grow_card_token,
+                    unique_id=ch.grow_unique_id,
+                    card_token=card_token,
                     amount=ch.amount,
                     description=f"פירות וירקות, {month_label(ch.month)}",
                     customer=CustomerInfo.of(ch.client),
                 )
             )
         except ChargeFailed as exc:
-            ch.status, ch.error = ChargeStatus.FAILED, str(exc)
+            if exc.code == DUPLICATE_UNIQUE_ID:
+                _resolve_duplicate(db, ch, card_token)
+                return
+            # A clear decline: the next attempt is a new request with a new identifier.
+            ch.status, ch.error, ch.grow_unique_id = ChargeStatus.FAILED, str(exc), None
             db.commit()
             return
         except Exception:
@@ -109,12 +134,34 @@ def process_charge(charge_id: int) -> None:
             db.commit()
             return
 
-        ch.status = ChargeStatus.CHARGED
-        ch.grow_transaction_id = result.transaction_id
-        ch.grow_payload = dump_raw(result.raw)
-        ch.charged_at = _now()
+        _mark_charged(db, ch, result)
+
+
+def _resolve_duplicate(db: Session, ch: Charge, card_token: str) -> None:
+    """Grow already saw this row's identifier: an earlier attempt reached it. Ask Grow how it ended."""
+    try:
+        found = get_gateway().find_token_charge(card_token, ch.grow_unique_id)
+    except Exception:
+        log.exception("Looking up an earlier Grow attempt failed (charge %s)", ch.id)
+        ch.status, ch.error = ChargeStatus.FAILED, UNKNOWN_OUTCOME
         db.commit()
-        attach_invoice(db, ch)
+        return
+    if found is None:
+        log.info("Earlier Grow attempt for charge %s did not complete", ch.id)
+        ch.status, ch.error, ch.grow_unique_id = ChargeStatus.FAILED, NOT_FOUND_AFTER_DUPLICATE, None
+        db.commit()
+        return
+    log.info("Charge %s was already charged in Grow (transaction %s)", ch.id, found.transaction_id)
+    _mark_charged(db, ch, found)
+
+
+def _mark_charged(db: Session, ch: Charge, result: ChargeResult) -> None:
+    ch.status, ch.error = ChargeStatus.CHARGED, None
+    ch.grow_transaction_id = result.transaction_id
+    ch.grow_payload = dump_raw(result.raw)
+    ch.charged_at = _now()
+    db.commit()
+    attach_invoice(db, ch)
 
 
 def attach_invoice(db: Session, ch: Charge) -> None:

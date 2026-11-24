@@ -17,6 +17,9 @@ const EMPTY: ClientInput = {
   active: true,
 };
 
+// Grow requires the customer's consent before a card is kept for future charges.
+const CONSENT_LABEL = "הגן אישר לשמור את פרטי האשראי שלו ב-Grow לחיובים עתידיים";
+
 const CSV_TEMPLATE = "﻿שם הגן,שם הגננת,טלפון,מייל,שם לחשבונית,ח.פ,כתובת,הערות\nגן לדוגמה,רונית,050-1234567,,,,,\n";
 
 /**
@@ -53,6 +56,7 @@ export function Clients() {
   const [editing, setEditing] = useState<Client | "new" | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [onlyNoCard, setOnlyNoCard] = useState(false);
+  const [consentFor, setConsentFor] = useState<Client | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const noCardCount = list?.filter((c) => !c.has_card_token).length ?? 0;
   const shown = (list ?? []).filter((c) => !onlyNoCard || !c.has_card_token);
@@ -201,7 +205,7 @@ export function Clients() {
                       className="btn btn-sm"
                       onClick={(e) => {
                         e.stopPropagation();
-                        fillCard(c);
+                        setConsentFor(c);
                       }}
                     >
                       מילוי כרטיס
@@ -224,6 +228,18 @@ export function Clients() {
           onSaved={() => {
             setEditing(null);
             load();
+          }}
+        />
+      )}
+
+      {consentFor && (
+        <CardConsentModal
+          client={consentFor}
+          onClose={() => setConsentFor(null)}
+          onConfirm={() => {
+            const c = consentFor;
+            setConsentFor(null);
+            fillCard(c);
           }}
         />
       )}
@@ -267,6 +283,7 @@ function ClientModal({ client, onClose, onSaved }: { client: Client | null; onCl
   const [hasCard, setHasCard] = useState(client?.has_card_token ?? false);
   const [cardUrl, setCardUrl] = useState<string | null>(null);
   const [cardBusy, setCardBusy] = useState(false);
+  const [consent, setConsent] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const set = <K extends keyof ClientInput>(key: K, value: ClientInput[K]) => setForm((f) => ({ ...f, [key]: value }));
@@ -431,11 +448,23 @@ function ClientModal({ client, onClose, onSaved }: { client: Client | null; onCl
                 הסרה
               </button>
             ) : (
-              <button type="button" className="btn btn-sm btn-primary" onClick={fillCard} disabled={cardBusy}>
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                onClick={fillCard}
+                disabled={cardBusy || !consent}
+                title={consent ? undefined : "קודם מסמנים שהגן אישר"}
+              >
                 {cardBusy ? "פותח את Grow…" : cardUrl ? "פתיחה מחדש" : "מילוי כרטיס"}
               </button>
             )}
           </div>
+          {!hasCard && (
+            <label className="check">
+              <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+              {CONSENT_LABEL}
+            </label>
+          )}
           {cardUrl && !hasCard && (
             <div className="card-link">
               <p className="sub">
@@ -454,6 +483,38 @@ function ClientModal({ client, onClose, onSaved }: { client: Client | null; onCl
           </p>
         </div>
       )}
+    </Modal>
+  );
+}
+
+/** Asks for the kindergarten's consent before opening Grow's card page from the list. */
+function CardConsentModal({ client, onClose, onConfirm }: { client: Client; onClose: () => void; onConfirm: () => void }) {
+  const [consent, setConsent] = useState(false);
+  return (
+    <Modal
+      title={`מילוי כרטיס: ${client.name}`}
+      onClose={onClose}
+      footer={
+        <>
+          <span className="spacer" />
+          <button type="button" className="btn" onClick={onClose}>
+            ביטול
+          </button>
+          <button type="button" className="btn btn-primary" disabled={!consent} onClick={onConfirm}>
+            פתיחת הדף של Grow
+          </button>
+        </>
+      }
+    >
+      <div className="card-box-wrap">
+        <label className="check">
+          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} autoFocus />
+          {CONSENT_LABEL}
+        </label>
+        <p className="footnote">
+          הדף המאובטח של Grow ייפתח בלשונית חדשה. מספר הכרטיס ות.ז מוקלדים רק שם, ולא עוברים דרך האתר הזה.
+        </p>
+      </div>
     </Modal>
   );
 }

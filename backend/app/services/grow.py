@@ -29,6 +29,20 @@ from ..models import Client
 class ChargeFailed(Exception):
     """Grow declined the request. The message is shown to the user as-is (Hebrew)."""
 
+    def __init__(self, message: str, code: int | None = None):
+        super().__init__(message)
+        self.code = code
+
+
+DUPLICATE_UNIQUE_ID = 1010  # Grow: this transactionUniqueIdentifier was already used
+
+
+def new_unique_id() -> int:
+    """A fresh numeric transactionUniqueIdentifier (milliseconds since 1970).
+
+    Time based rather than the charge id, so it stays unique even if the database is reset."""
+    return int(time.time() * 1000)
+
 
 class InvoiceNotReady(Exception):
     """Grow has not sent the invoice for this transaction yet."""
@@ -56,6 +70,7 @@ class CustomerInfo:
 @dataclass
 class ChargeRequest:
     charge_id: int
+    unique_id: int  # transactionUniqueIdentifier; Grow refuses a second request with the same value
     card_token: str
     amount: Decimal
     description: str
@@ -78,6 +93,10 @@ class GrowGateway(ABC):
     @abstractmethod
     def charge_with_token(self, req: ChargeRequest) -> ChargeResult:
         """Charge a saved card. Raise ChargeFailed with a Hebrew message on decline."""
+
+    @abstractmethod
+    def find_token_charge(self, card_token: str, unique_id: int) -> ChargeResult | None:
+        """The completed transaction sent with this unique id, or None if Grow has none."""
 
     @abstractmethod
     def fetch_invoice(self, transaction_id: str, raw: dict) -> bytes:
@@ -129,6 +148,19 @@ def dump_raw(raw: dict) -> str:
     return json.dumps(raw, ensure_ascii=False)
 
 
+def _dicts(node):
+    """Every dict in a JSON value, outermost first."""
+    if isinstance(node, dict):
+        yield node
+        children = node.values()
+    elif isinstance(node, list):
+        children = node
+    else:
+        return
+    for child in children:
+        yield from _dicts(child)
+
+
 # ---------- live ----------
 
 
@@ -158,8 +190,9 @@ class LiveGrowGateway(GrowGateway):
         if str(body.get("status")) != "1":
             err = body.get("err") if isinstance(body.get("err"), dict) else {}
             message = err.get("message") or "הבקשה נדחתה"
-            code = f" (קוד {err['id']})" if err.get("id") else ""
-            raise ChargeFailed(f"Grow: {message}{code}")
+            code = int(err["id"]) if str(err.get("id", "")).isdigit() else None
+            suffix = f" (קוד {code})" if code else ""
+            raise ChargeFailed(f"Grow: {message}{suffix}", code)
         return body.get("data") or {}
 
     def charge_with_token(self, req: ChargeRequest) -> ChargeResult:
@@ -179,10 +212,10 @@ class LiveGrowGateway(GrowGateway):
                 "pageField[invoiceName]": clean(c.invoice_name or c.name),
                 "pageField[invoiceLicenseNumber]": clean(c.tax_id),
                 "cField1": req.charge_id,
-                # Unique per request. TODO(grow): confirm in sandbox that a 13-digit value is accepted.
-                "transactionUniqueIdentifier": int(time.time() * 1000),
-                # Grow rejects the request if this group already has a successful payment,
-                # so retrying a charge whose outcome was unknown can never charge twice.
+                # Grow rejects any second request with the same value (error 1010), whatever
+                # happened to the first. A retry after an unknown outcome reuses it on purpose.
+                "transactionUniqueIdentifier": req.unique_id,
+                # Not unique and never rejected; only for looking transactions up in Grow.
                 "transactionGroupIdentifier": req.charge_id,
                 # Not in the token spec; asked Grow whether invoices for token charges use it.
                 "invoiceNotifyUrl": webhook_url("invoice-notify"),
@@ -190,6 +223,24 @@ class LiveGrowGateway(GrowGateway):
         )
         raw = {k: v for k, v in data.items() if k not in ("cardToken", "processToken")}
         return ChargeResult(transaction_id=str(data.get("transactionId") or ""), raw=raw)
+
+    def find_token_charge(self, card_token: str, unique_id: int) -> ChargeResult | None:
+        # Send only one of the two identifiers: Grow returns an error if both are sent.
+        data = self._post(
+            "getTokenTransactionsByExternalIdentifiers",
+            {
+                "userId": settings.grow_user_id,
+                "cardToken": card_token,
+                "transactionUniqueIdentifier": unique_id,
+            },
+        )
+        # Like getPaymentProcessInfo; an incomplete transaction has only received_time/complete_time.
+        for item in _dicts(data):
+            transaction_id = item.get("transactionId")
+            if transaction_id:
+                raw = {k: v for k, v in item.items() if k not in ("cardToken", "processToken")}
+                return ChargeResult(transaction_id=str(transaction_id), raw=raw)
+        return None
 
     def fetch_invoice(self, transaction_id: str, raw: dict) -> bytes:
         url = raw.get("invoice_url")
@@ -246,6 +297,9 @@ class MockGrowGateway(GrowGateway):
             "date": date.today().strftime("%d/%m/%Y"),
         }
         return ChargeResult(transaction_id=transaction_id, raw=raw)
+
+    def find_token_charge(self, card_token: str, unique_id: int) -> ChargeResult | None:
+        return None  # mock charges never fail halfway, so there is never anything to find
 
     def fetch_invoice(self, transaction_id: str, raw: dict) -> bytes:
         from .mock_invoice import render_mock_invoice

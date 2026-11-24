@@ -194,6 +194,6 @@ export const api = {
     form.append("file", file);
     return request<ImportResult>("/clients/import", { method: "POST", body: form });
   },
-  saveCard: (id: number) => request<CardSaveResult>(`/clients/${id}/card`, json("POST")),
+  saveCard: (id: number) => request<CardSaveResult>(`/clients/${id}/card`, json("POST", { consent: true })),
   removeCard: (id: number) => request<CardSaveResult>(`/clients/${id}/card`, json("DELETE")),
 };

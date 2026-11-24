@@ -2,6 +2,7 @@ import csv
 import io
 import logging
 import re
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
@@ -12,7 +13,7 @@ from sqlalchemy.orm import Session
 from ..auth import require_auth
 from ..db import get_db
 from ..models import Charge, Client
-from ..schemas import CardSaveOut, ClientIn, ClientOut, ImportResult
+from ..schemas import CardSaveIn, CardSaveOut, ClientIn, ClientOut, ImportResult
 from ..services.grow import ChargeFailed, CustomerInfo, get_gateway
 
 log = logging.getLogger(__name__)
@@ -148,11 +149,15 @@ def import_clients(file: UploadFile, db: Session = Depends(get_db)):
 
 
 @router.post("/{client_id}/card", response_model=CardSaveOut)
-def start_card_save(client_id: int, db: Session = Depends(get_db)):
+def start_card_save(client_id: int, body: CardSaveIn | None = None, db: Session = Depends(get_db)):
     """Start saving the client's card in Grow. Mock mode saves a fake token immediately;
-    live mode returns a Grow page URL for the kindergarten to fill in. The token then
-    arrives through Grow's notification (routers/grow_webhook.py)."""
+    live mode returns a Grow page URL to fill in. The token then arrives through Grow's
+    notification (routers/grow_webhook.py). Grow requires the customer's consent first."""
+    if not (body and body.consent):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "צריך לסמן שהגן אישר לשמור את הכרטיס לחיובים עתידיים")
     client = _get_client(db, client_id)
+    client.card_consent_at = datetime.now(timezone.utc)
+    db.commit()
     try:
         result = get_gateway().start_card_save(client.id, CustomerInfo.of(client))
     except ChargeFailed as exc:
