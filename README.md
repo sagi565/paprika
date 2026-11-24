@@ -17,6 +17,18 @@ Open http://localhost:8080 and log in with `ADMIN_PASSWORD` from `.env`.
 With `SEED_DEMO=true` an empty database is filled with demo kindergartens.
 To start over: `docker compose down -v` (deletes the database and invoice images).
 
+## Login
+
+One password (`ADMIN_PASSWORD`), or the device's fingerprint / face check (WebAuthn passkeys,
+[backend/app/routers/passkeys.py](backend/app/routers/passkeys.py)). After a password login on a
+phone, the site offers to enable the fingerprint; from then on that phone's login page starts with
+**כניסה עם טביעת אצבע**, and the password still works everywhere. **טביעת אצבע** in the top bar
+lists the registered devices and removes a lost one. Only public keys are stored (`passkeys` table).
+
+A login lasts `SESSION_HOURS` (default 12). Passkeys are bound to the site's domain, taken from
+`PUBLIC_URL` (or the request's `Origin` when it is empty, e.g. locally); a new domain means
+enabling the fingerprint again. Browsers allow passkeys only over HTTPS or on `localhost`.
+
 ## How it works
 
 0. **בית** – dashboard: this month's progress, revenue tiles, revenue by month

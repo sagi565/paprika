@@ -86,3 +86,20 @@ class InvoiceImage(Base):
     image: Mapped[bytes] = mapped_column(LargeBinary)
     thumb: Mapped[bytes] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Passkey(Base):
+    """A device that logs in with its own fingerprint or face check instead of the password (WebAuthn).
+
+    Only the public key is kept here; the private key never leaves the phone (or its Google/iCloud account).
+    """
+
+    __tablename__ = "passkeys"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    credential_id: Mapped[bytes] = mapped_column(LargeBinary, unique=True)
+    public_key: Mapped[bytes] = mapped_column(LargeBinary)
+    sign_count: Mapped[int] = mapped_column(BigInteger, default=0)
+    name: Mapped[str] = mapped_column(String(100))  # e.g. "אייפון", from the browser at registration
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

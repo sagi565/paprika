@@ -138,6 +138,19 @@ class MeOut(BaseModel):
     grow_mode: str
 
 
+class PasskeyCredentialIn(BaseModel):
+    # The browser's PublicKeyCredential as JSON (base64url fields); checked by the webauthn library.
+    credential: dict
+
+
+class PasskeyOut(BaseModel):
+    id: int
+    credential_id: str  # base64url; lets the browser recognize its own entry ("this device")
+    name: str
+    created_at: datetime
+    last_used_at: datetime | None
+
+
 class MonthRevenue(BaseModel):
     month: str
     revenue: float

@@ -1,4 +1,5 @@
-"""Single-user login: one admin password from the environment, signed session cookie."""
+"""Single-user login: the admin password from the environment or a passkey (routers/passkeys.py),
+then a signed session cookie."""
 
 import hmac
 import time
@@ -18,7 +19,7 @@ _failures: dict[str, list[float]] = defaultdict(list)
 
 
 def _max_age() -> int:
-    return settings.session_days * 24 * 3600
+    return settings.session_hours * 3600
 
 
 def check_login_rate(ip: str) -> None:
@@ -29,10 +30,14 @@ def check_login_rate(ip: str) -> None:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "יותר מדי ניסיונות. נסו שוב בעוד רבע שעה.")
 
 
+def record_failure(ip: str) -> None:
+    _failures[ip].append(time.time())
+
+
 def verify_password(ip: str, password: str) -> bool:
     ok = hmac.compare_digest(password.encode(), settings.admin_password.encode())
     if not ok:
-        _failures[ip].append(time.time())
+        record_failure(ip)
     return ok
 
 

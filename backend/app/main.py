@@ -5,7 +5,7 @@ from fastapi import FastAPI
 
 from .config import settings
 from .db import Base, SessionLocal, add_missing_columns, engine
-from .routers import auth, charges, clients, dashboard, grow_webhook
+from .routers import auth, charges, clients, dashboard, grow_webhook, passkeys
 from .seed import seed_demo, seed_demo_history
 from .services.billing import recover_interrupted
 from .services.invoices import import_legacy_files
@@ -33,7 +33,7 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
-for module in (auth, clients, charges, dashboard, grow_webhook):
+for module in (auth, passkeys, clients, charges, dashboard, grow_webhook):
     app.include_router(module.router, prefix="/api")
 
 

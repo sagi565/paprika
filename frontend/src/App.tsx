@@ -3,6 +3,7 @@ import { BrowserRouter, Link, Navigate, NavLink, Route, Routes } from "react-rou
 import { api, UNAUTHORIZED_EVENT, type Me } from "./api";
 import { Brand } from "./components/Brand";
 import { GroupIcon, HomeIcon, ReceiptIcon } from "./components/icons";
+import { PasskeysModal } from "./components/PasskeysModal";
 import { Toaster } from "./components/toast";
 import { WakeNotice } from "./components/WakeNotice";
 import { Billing } from "./pages/Billing";
@@ -12,6 +13,7 @@ import { Login } from "./pages/Login";
 import { Send } from "./pages/Send";
 
 function Layout({ me, onLogout, children }: { me: Me; onLogout: () => void; children: ReactNode }) {
+  const [showPasskeys, setShowPasskeys] = useState(false);
   return (
     <>
       {me.grow_mode === "mock" && <div className="demo-strip">מצב הדגמה: החיובים והחשבוניות מדומים</div>}
@@ -27,11 +29,17 @@ function Layout({ me, onLogout, children }: { me: Me; onLogout: () => void; chil
             <NavLink to="/billing">חיובים</NavLink>
             <NavLink to="/clients">גנים</NavLink>
           </nav>
-          <button className="link-btn" onClick={onLogout}>
-            יציאה
-          </button>
+          <div className="topbar-actions">
+            <button className="link-btn" onClick={() => setShowPasskeys(true)}>
+              טביעת אצבע
+            </button>
+            <button className="link-btn" onClick={onLogout}>
+              יציאה
+            </button>
+          </div>
         </div>
       </header>
+      {showPasskeys && <PasskeysModal onClose={() => setShowPasskeys(false)} />}
       <main className="page">{children}</main>
       <nav className="tabbar" aria-label="ניווט">
         <NavLink to="/" end>

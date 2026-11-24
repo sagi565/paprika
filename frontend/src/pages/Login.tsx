@@ -1,46 +1,162 @@
 import { useState, type FormEvent } from "react";
 import { api, type Me } from "../api";
 import { Brand } from "../components/Brand";
+import { FingerprintIcon } from "../components/icons";
+import { toast } from "../components/toast";
+import {
+  addThisDevice,
+  declineOffer,
+  loginWithPasskey,
+  passkeyErrorMessage,
+  passkeysSupported,
+  shouldOfferPasskey,
+  thisDevicePasskey,
+} from "../passkey";
 
 export function Login({ onLogin }: { onLogin: (me: Me) => void }) {
+  const supported = passkeysSupported();
+  // A device that logs in with its fingerprint starts there; the password is one tap away.
+  const [showPassword, setShowPassword] = useState(() => !(supported && thisDevicePasskey()));
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"password" | "fingerprint" | null>(null);
+  // Logged in with the password on a device that could use its fingerprint next time.
+  const [offerFor, setOfferFor] = useState<Me | null>(null);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    setBusy(true);
+    setBusy("password");
     setError(null);
     try {
-      onLogin(await api.login(password));
+      const me = await api.login(password);
+      if (await shouldOfferPasskey()) setOfferFor(me);
+      else onLogin(me);
     } catch (err) {
       setError(err instanceof Error ? err.message : "ההתחברות נכשלה");
     } finally {
+      setBusy(null);
+    }
+  };
+
+  const fingerprintLogin = async () => {
+    setBusy("fingerprint");
+    setError(null);
+    try {
+      onLogin(await loginWithPasskey());
+    } catch (err) {
+      setError(passkeyErrorMessage(err));
+      if (!thisDevicePasskey()) setShowPassword(true);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (offerFor) return <PasskeyOffer me={offerFor} onDone={onLogin} />;
+
+  const fingerprintButton = (primary: boolean) => (
+    <button
+      type="button"
+      className={primary ? "btn btn-primary btn-block btn-lg" : "btn btn-block"}
+      onClick={fingerprintLogin}
+      disabled={busy !== null}
+    >
+      <FingerprintIcon size={primary ? 24 : 20} />
+      {busy === "fingerprint" ? "מחכה לטביעת האצבע…" : "כניסה עם טביעת אצבע"}
+    </button>
+  );
+
+  return (
+    <div className="login">
+      <div className="login-card">
+        <Brand large />
+        <p className="login-lead">ניהול חיובים חודשיים</p>
+        {showPassword ? (
+          <form className="login-form" onSubmit={submit}>
+            <label className="field">
+              <span>סיסמה</span>
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoFocus
+                required
+              />
+            </label>
+            {error && <p className="form-error">{error}</p>}
+            <button className="btn btn-primary btn-block" disabled={busy !== null || !password}>
+              {busy === "password" ? "מתחבר…" : "כניסה"}
+            </button>
+            {supported && (
+              <>
+                <p className="login-or">או</p>
+                {fingerprintButton(false)}
+              </>
+            )}
+          </form>
+        ) : (
+          <>
+            {fingerprintButton(true)}
+            {error && <p className="form-error">{error}</p>}
+            <button
+              type="button"
+              className="link-btn login-switch"
+              onClick={() => {
+                setShowPassword(true);
+                setError(null);
+              }}
+            >
+              כניסה עם סיסמה
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Shown once after a password login on a phone (or computer) that has a fingerprint or face check. */
+function PasskeyOffer({ me, onDone }: { me: Me; onDone: (me: Me) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const enable = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await addThisDevice();
+      toast("מעכשיו אפשר להיכנס מהמכשיר הזה עם טביעת אצבע");
+      onDone(me);
+    } catch (err) {
+      setError(passkeyErrorMessage(err, true));
       setBusy(false);
     }
   };
 
+  const skip = () => {
+    declineOffer();
+    onDone(me);
+  };
+
   return (
     <div className="login">
-      <form className="login-card" onSubmit={submit}>
-        <Brand large />
-        <p className="login-lead">ניהול חיובים חודשיים</p>
-        <label className="field">
-          <span>סיסמה</span>
-          <input
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoFocus
-            required
-          />
-        </label>
+      <div className="login-card">
+        <span className="login-icon">
+          <FingerprintIcon size={34} />
+        </span>
+        <h1 className="login-title">כניסה עם טביעת אצבע?</h1>
+        <p className="login-lead">
+          בפעם הבאה אפשר להיכנס מהמכשיר הזה עם טביעת אצבע או זיהוי פנים, בלי להקליד סיסמה.
+        </p>
         {error && <p className="form-error">{error}</p>}
-        <button className="btn btn-primary btn-block" disabled={busy || !password}>
-          {busy ? "מתחבר…" : "כניסה"}
+        <button className="btn btn-primary btn-block btn-lg" onClick={enable} disabled={busy}>
+          {busy ? "מפעיל…" : "הפעלה"}
         </button>
-      </form>
+        <button className="btn btn-block" onClick={skip} disabled={busy}>
+          לא עכשיו
+        </button>
+        <p className="hint">אפשר להפעיל גם אחר כך, מ״טביעת אצבע״ בראש האתר.</p>
+      </div>
     </div>
   );
 }

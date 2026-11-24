@@ -104,6 +104,15 @@ export interface CardSaveResult {
   url: string | null;
 }
 
+/** A device that logs in with its fingerprint or face check. */
+export interface Passkey {
+  id: number;
+  credential_id: string;
+  name: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -150,7 +159,8 @@ async function request<T>(path: string, init: RequestInit = {}, attempt = 0): Pr
     await sleep(WAKE_DELAY_MS);
     return request<T>(path, init, attempt + 1);
   }
-  if (res.status === 401 && !path.startsWith("/auth/login")) {
+  // A failed login attempt is not a lost session.
+  if (res.status === 401 && !path.startsWith("/auth/login") && !path.startsWith("/auth/passkeys/login")) {
     window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
   }
   if (!res.ok) {
@@ -170,6 +180,14 @@ export const api = {
   me: () => request<Me>("/auth/me"),
   login: (password: string) => request<Me>("/auth/login", json("POST", { password })),
   logout: () => request<void>("/auth/logout", json("POST")),
+
+  // WebAuthn options and credentials travel as JSON; passkey.ts converts them for the browser.
+  passkeys: () => request<Passkey[]>("/auth/passkeys"),
+  passkeyRegisterOptions: () => request<unknown>("/auth/passkeys/register/options", json("POST")),
+  passkeyRegister: (credential: unknown) => request<Passkey>("/auth/passkeys/register", json("POST", { credential })),
+  deletePasskey: (id: number) => request<void>(`/auth/passkeys/${id}`, json("DELETE")),
+  passkeyLoginOptions: () => request<unknown>("/auth/passkeys/login/options", json("POST")),
+  passkeyLogin: (credential: unknown) => request<Me>("/auth/passkeys/login", json("POST", { credential })),
 
   dashboard: (months: number) => request<Dashboard>(`/dashboard?months=${months}`),
   month: (month: string) => request<MonthData>(`/months/${month}/charges`),

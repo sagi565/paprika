@@ -12,7 +12,8 @@ class Settings(BaseSettings):
     secret_key: str
     admin_password: str
     cookie_secure: bool = False
-    session_days: int = 30
+    # How long a login lasts. Kept short, since logging in again is one fingerprint touch.
+    session_hours: int = 12
     data_dir: Path = Path("/data")
     seed_demo: bool = False
     business_name: str = "פפריקה פירות וירקות"
