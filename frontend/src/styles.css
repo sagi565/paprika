@@ -1518,3 +1518,25 @@ select {
 .terms-page a {
   color: var(--accent);
 }
+
+/* Business details + terms link on every page (Grow's site review) */
+.site-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 18px;
+  padding: 20px 16px 28px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+}
+.site-footer a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* Full-screen pages (login, card saved): pull the footer up so it shows without scrolling. */
+#root:has(.login, .auth) > .site-footer {
+  margin-top: -96px;
+  position: relative;
+}
