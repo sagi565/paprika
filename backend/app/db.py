@@ -33,6 +33,10 @@ NEW_COLUMNS = (
     "CREATE SEQUENCE IF NOT EXISTS grow_unique_id_seq",
     "SELECT setval('grow_unique_id_seq', GREATEST((SELECT last_value FROM grow_unique_id_seq),"
     " extract(epoch from now())::bigint))",
+    "ALTER TABLE charges ADD COLUMN IF NOT EXISTS invoice_checked_at TIMESTAMPTZ",
+    "ALTER TABLE charges ADD COLUMN IF NOT EXISTS wa_state VARCHAR(20)",
+    "ALTER TABLE charges ADD COLUMN IF NOT EXISTS wa_error TEXT",
+    "ALTER TABLE charges ADD COLUMN IF NOT EXISTS wa_message_id VARCHAR(100)",
 )
 
 

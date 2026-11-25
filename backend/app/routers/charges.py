@@ -2,13 +2,14 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Response, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.orm import Session, contains_eager, joinedload
 
 from ..auth import require_auth
 from ..db import get_db
-from ..models import Charge, ChargeStatus, Client, InvoiceImage
+from ..models import Charge, ChargeStatus, Client, InvoiceImage, WhatsAppSession
 from ..schemas import (
     MONTH_PATTERN,
     ChargeDetail,
@@ -19,12 +20,12 @@ from ..schemas import (
     SentUpdate,
     StartedOut,
 )
-from ..services import billing
+from ..services import billing, invoices, whatsapp
 
 router = APIRouter(tags=["charges"], dependencies=[Depends(require_auth)])
 
 Month = Annotated[str, Path(pattern=MONTH_PATTERN)]
-DONE = (ChargeStatus.CHARGED, ChargeStatus.SENT)
+DONE = billing.DONE
 
 
 def _load(db: Session, charge_id: int) -> Charge:
@@ -47,6 +48,7 @@ def _summary(rows: list[ChargeOut]) -> MonthSummary:
         charged_amount=sum(r.amount or 0 for r in rows if r.status in DONE),
         failed_count=count(ChargeStatus.FAILED),
         sent_count=count(ChargeStatus.SENT),
+        sending_count=sum(1 for r in rows if r.wa_state in ("queued", "sending")),
     )
 
 
@@ -113,7 +115,62 @@ def refresh_invoice(charge_id: int, db: Session = Depends(get_db)):
     if ch.status not in DONE:
         raise HTTPException(status.HTTP_409_CONFLICT, "אין חשבונית לפני חיוב")
     billing.attach_invoice(db, ch)
-    return ChargeOut.of(ch)
+    return ChargeOut.of(_load(db, charge_id))
+
+
+MAX_UPLOAD = 15 * 1024 * 1024
+
+
+@router.post("/charges/{charge_id}/invoice/upload", response_model=ChargeOut)
+async def upload_invoice(charge_id: int, file: UploadFile, db: Session = Depends(get_db)):
+    """The owner's own copy of the invoice (PDF or photo), when Grow's doesn't arrive."""
+    ch = _load(db, charge_id)
+    if ch.status not in DONE:
+        raise HTTPException(status.HTTP_409_CONFLICT, "אפשר להעלות חשבונית רק אחרי חיוב")
+    data = await file.read(MAX_UPLOAD + 1)
+    if len(data) > MAX_UPLOAD:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "הקובץ גדול מדי (עד 15MB)")
+    try:
+        png = await run_in_threadpool(invoices.document_to_png, data)
+    except invoices.NotADocument:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "צריך קובץ PDF או תמונה") from None
+    except Exception:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "לא הצלחנו לקרוא את הקובץ") from None
+    invoices.store_invoice(db, ch, png)
+    ch.invoice_error = None
+    if ch.wa_state == "failed":
+        ch.wa_state, ch.wa_error = None, None
+    db.commit()
+    return ChargeOut.of(_load(db, charge_id))
+
+
+@router.post("/charges/{charge_id}/whatsapp", response_model=ChargeOut)
+def send_whatsapp(charge_id: int, background: BackgroundTasks, db: Session = Depends(get_db)):
+    """Send this invoice from the business's WhatsApp to the kindergarten (in the background;
+    the page follows wa_state)."""
+    ch = _load(db, charge_id)
+    if not ch.invoice_image:
+        raise HTTPException(status.HTTP_409_CONFLICT, "אין עדיין תמונת חשבונית לשליחה")
+    if ch.status == ChargeStatus.SENT:
+        raise HTTPException(status.HTTP_409_CONFLICT, "החשבונית כבר נשלחה")
+    _require_whatsapp(db)
+    if whatsapp.claim(db, Charge.id == charge_id):
+        background.add_task(whatsapp.send_charge, charge_id)
+    return ChargeOut.of(_load(db, charge_id))
+
+
+@router.post("/months/{month}/whatsapp-all", response_model=StartedOut)
+def send_whatsapp_all(month: Month, background: BackgroundTasks, db: Session = Depends(get_db)):
+    _require_whatsapp(db)
+    ids = whatsapp.claim(db, Charge.month == month)
+    if ids:
+        background.add_task(whatsapp.send_many, ids)
+    return StartedOut(started=len(ids))
+
+
+def _require_whatsapp(db: Session) -> None:
+    if db.get(WhatsAppSession, 1) is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, whatsapp.NOT_LINKED)
 
 
 def _invoice(db: Session, charge_id: int) -> InvoiceImage:

@@ -2,14 +2,15 @@
 
 import json
 import logging
-from datetime import datetime, timezone
+import threading
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, text, update
+from sqlalchemy import or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from ..db import SessionLocal
-from ..models import Charge, ChargeStatus, Client
+from ..models import Charge, ChargeStatus, Client, GrowInvoiceNotice
 from . import invoices
 from .grow import (
     DUPLICATE_UNIQUE_ID,
@@ -24,6 +25,13 @@ from .grow import (
 )
 
 log = logging.getLogger(__name__)
+
+DONE = (ChargeStatus.CHARGED, ChargeStatus.SENT)
+INVOICE_WAITING = "ממתינים לחשבונית מ-Grow. בודקים שוב לבד כל כמה דקות."
+INVOICE_FAILED = "לא הצלחנו להפוך את החשבונית מ-Grow לתמונה. אפשר להעלות אותה ידנית."
+# How long the background check keeps asking Grow for a missing invoice.
+INVOICE_RETRY_DAYS = 14
+NOTICE_MATCH_DAYS = 60
 
 # The row keeps its transactionUniqueIdentifier, so charging again is safe: if the first
 # attempt went through, Grow refuses the second and we look the first one up instead.
@@ -173,19 +181,81 @@ def _mark_charged(db: Session, ch: Charge, result: ChargeResult) -> None:
     attach_invoice(db, ch)
 
 
+# ---------- invoices ----------
+
+
+def _refs(values) -> set[str]:
+    return {str(v).strip() for v in values if v not in (None, "") and str(v).strip()}
+
+
+def charge_refs(ch: Charge, raw: dict) -> set[str]:
+    """Identifiers Grow may use for this charge in an invoice notification."""
+    return _refs(
+        [ch.grow_transaction_id, raw.get("transactionId"), raw.get("transactionCode"), raw.get("asmachta")]
+    )
+
+
+def notice_refs(item: dict) -> set[str]:
+    return _refs([item.get("transactionId"), item.get("transactionCode"), item.get("asmachta")])
+
+
+def match_charge(db: Session, refs: set[str]) -> Charge | None:
+    """The charge an invoice notification belongs to."""
+    if not refs:
+        return None
+    ch = db.scalar(select(Charge).where(Charge.grow_transaction_id.in_(refs)))
+    if ch is not None:
+        return ch
+    recent = db.scalars(
+        select(Charge).where(
+            Charge.status.in_(DONE), Charge.charged_at > _now() - timedelta(days=NOTICE_MATCH_DAYS)
+        )
+    )
+    for candidate in recent:
+        if charge_refs(candidate, json.loads(candidate.grow_payload or "{}")) & refs:
+            return candidate
+    return None
+
+
+def _apply_notice(db: Session, ch: Charge, raw: dict) -> None:
+    """An invoice notification that came before the charge was saved (Grow can be that fast)."""
+    refs = charge_refs(ch, raw)
+    notices = db.scalars(
+        select(GrowInvoiceNotice)
+        .where(
+            or_(GrowInvoiceNotice.charge_id == ch.id, GrowInvoiceNotice.charge_id.is_(None)),
+            GrowInvoiceNotice.received_at > _now() - timedelta(days=NOTICE_MATCH_DAYS),
+        )
+        .order_by(GrowInvoiceNotice.id.desc())
+    )
+    for notice in notices:
+        if notice.charge_id == ch.id or refs & set(notice.refs.split()):
+            notice.charge_id = ch.id
+            raw["invoice_url"] = notice.invoice_url
+            if notice.invoice_number:
+                raw["invoice_number"] = notice.invoice_number
+            return
+
+
 def attach_invoice(db: Session, ch: Charge) -> None:
-    """Fetch the invoice from Grow and store it as a PNG. Never fails the charge."""
+    """Get the invoice from Grow and store it as a PNG. Never fails the charge."""
+    ch.invoice_checked_at = _now()
     try:
         raw = json.loads(ch.grow_payload or "{}")
-        document = get_gateway().fetch_invoice(ch.grow_transaction_id or "", raw)
-        invoices.store_invoice(db, ch, invoices.document_to_png(document))
+        _apply_notice(db, ch, raw)
+        source = get_gateway().find_invoice(ch.grow_transaction_id or "", raw)
+        ch.grow_payload = dump_raw(raw)  # keeps the invoice link Grow gave us
+        invoices.store_invoice(db, ch, invoices.source_to_png(source))
         ch.invoice_error = None
     except InvoiceNotReady:
-        ch.invoice_error = "ממתינים לחשבונית מ-Grow"
+        ch.grow_payload = dump_raw(raw)
+        ch.invoice_error = INVOICE_WAITING
     except Exception:
         log.exception("Fetching invoice failed (charge %s)", ch.id)
         db.rollback()
-        ch.invoice_error = "לא הצלחנו להביא את החשבונית מ-Grow"
+        ch.invoice_checked_at = _now()
+        # A parallel attempt (Grow's notification) may have stored it meanwhile.
+        ch.invoice_error = None if ch.invoice_image else INVOICE_FAILED
     db.commit()
 
 
@@ -193,8 +263,41 @@ def attach_invoice_by_id(charge_id: int) -> None:
     """For background tasks (e.g. Grow's invoice notification)."""
     with SessionLocal() as db:
         ch = db.get(Charge, charge_id)
-        if ch is not None:
+        if ch is not None and not ch.invoice_image:
             attach_invoice(db, ch)
+
+
+def retry_missing_invoices() -> None:
+    """Ask Grow again for invoices that haven't come: every few minutes in the first hour
+    after the charge, then every half hour, for two weeks."""
+    now = _now()
+    with SessionLocal() as db:
+        rows = db.scalars(
+            select(Charge).where(
+                Charge.status.in_(DONE),
+                Charge.invoice_image.is_(None),
+                Charge.charged_at > now - timedelta(days=INVOICE_RETRY_DAYS),
+            )
+        ).all()
+        for ch in rows:
+            gap = timedelta(minutes=3) if now - ch.charged_at < timedelta(hours=1) else timedelta(minutes=30)
+            if ch.invoice_checked_at is None or now - ch.invoice_checked_at >= gap:
+                attach_invoice(db, ch)
+
+
+def start_invoice_watcher(interval: float = 60) -> threading.Event:
+    """Background thread for retry_missing_invoices. Set the returned event to stop it."""
+    stop = threading.Event()
+
+    def loop() -> None:
+        while not stop.wait(interval):
+            try:
+                retry_missing_invoices()
+            except Exception:
+                log.exception("Invoice retry round failed")
+
+    threading.Thread(target=loop, name="invoice-watcher", daemon=True).start()
+    return stop
 
 
 def recover_interrupted(db: Session) -> None:

@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     # Secret in our webhook URLs, so only Grow (who got the URL from us) can call them.
     grow_webhook_key: str = ""
 
+    # WhatsApp sending through wacli (https://github.com/openclaw/wacli), linked to the
+    # business's own WhatsApp as a "linked device". The session itself is kept in the
+    # database (whatsapp_session), so a redeploy doesn't unlink it.
+    wacli_bin: str = "wacli"
+    # Headless Chromium, used only when Grow's invoice link is a web page rather than a PDF.
+    chromium_bin: str = "chromium"
+
     @field_validator("database_url")
     @classmethod
     def use_psycopg_driver(cls, v: str) -> str:

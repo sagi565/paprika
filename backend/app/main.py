@@ -5,9 +5,10 @@ from fastapi import FastAPI
 
 from .config import settings
 from .db import Base, SessionLocal, add_missing_columns, engine
-from .routers import auth, charges, clients, dashboard, grow_webhook, passkeys
+from .routers import auth, charges, clients, dashboard, grow_webhook, passkeys, whatsapp as whatsapp_router
 from .seed import seed_demo, seed_demo_history
-from .services.billing import recover_interrupted
+from .services import whatsapp
+from .services.billing import recover_interrupted, start_invoice_watcher
 from .services.invoices import import_legacy_files
 
 logging.basicConfig(level=logging.INFO)
@@ -19,11 +20,15 @@ async def lifespan(app: FastAPI):
     add_missing_columns()
     with SessionLocal() as db:
         recover_interrupted(db)
+        whatsapp.recover_interrupted(db)
         import_legacy_files(db)
         if settings.seed_demo:
             seed_demo(db)
             seed_demo_history(db)
+    whatsapp.restore_session()
+    stop_watcher = start_invoice_watcher()
     yield
+    stop_watcher.set()
 
 
 app = FastAPI(
@@ -33,7 +38,7 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
-for module in (auth, passkeys, clients, charges, dashboard, grow_webhook):
+for module in (auth, passkeys, clients, charges, dashboard, grow_webhook, whatsapp_router):
     app.include_router(module.router, prefix="/api")
 
 

@@ -12,12 +12,11 @@ import re
 from collections.abc import Iterator
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db import get_db
-from ..models import Charge, Client
+from ..models import Client, GrowInvoiceNotice
 from ..services import billing
 from ..services.grow import dump_raw, get_gateway, verify_card_signature
 
@@ -151,15 +150,26 @@ async def grow_invoice_notify(
     log.info("Grow invoice notify: %s", _redact(payload))
 
     for item in _invoice_items(payload):
-        transaction_id = str(item.get("transactionId") or item.get("transactionCode") or "")
-        if not transaction_id:
+        url = str(item.get("invoiceUrl") or "")
+        refs = billing.notice_refs(item)
+        if not url.startswith("https://") or not refs:
             continue
-        ch = db.scalar(select(Charge).where(Charge.grow_transaction_id == transaction_id))
+        # Kept even without a matching charge: Grow may notify before our charge request returns,
+        # and the charge picks it up when it is saved (billing._apply_notice).
+        notice = GrowInvoiceNotice(
+            refs=" ".join(sorted(refs))[:300],
+            invoice_number=str(item.get("invoiceNumber") or "")[:100] or None,
+            invoice_url=url,
+        )
+        db.add(notice)
+        ch = billing.match_charge(db, refs)
         if ch is None:
-            log.warning("Invoice for unknown transaction %s", transaction_id)
+            log.info("Invoice for a transaction not charged here (yet): %s", notice.refs)
+            db.commit()
             continue
+        notice.charge_id = ch.id
         raw = json.loads(ch.grow_payload or "{}")
-        raw.update(invoice_url=item.get("invoiceUrl"), invoice_number=item.get("invoiceNumber"))
+        raw.update(invoice_url=url, invoice_number=notice.invoice_number)
         ch.grow_payload = dump_raw(raw)
         db.commit()
         background.add_task(billing.attach_invoice_by_id, ch.id)

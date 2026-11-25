@@ -39,11 +39,41 @@ enabling the fingerprint again. Browsers allow passkeys only over HTTPS or on `l
 2. **חיובים** – pick the month, type each kindergarten's amount, press
    **חיוב כל הגנים**. Rows are claimed atomically (`pending/failed → processing`) so
    nothing is charged twice; the page refreshes while the charges run.
-3. After a successful charge the invoice PDF is fetched, rendered to a PNG and stored.
-4. **שליחה בוואטסאפ** opens a phone-friendly page with the image. On a phone over HTTPS
-   it opens the share sheet with the image attached (choose WhatsApp → the teacher);
-   otherwise it offers download + open-chat. Sending marks the row **נשלח**, and
-   **לגן הבא** jumps to the next unsent one.
+3. After a successful charge the invoice is fetched and stored as one PNG (see **Invoices**).
+   Click the thumbnail to see it; **הורדה** saves it.
+4. **שליחה בוואטסאפ** sends the image straight from the business's own WhatsApp to the
+   kindergarten's phone, once WhatsApp is linked (**וואטסאפ** in the top bar, see below).
+   **שליחת כל החשבוניות** sends the whole month, a few seconds apart. A sent row becomes
+   **נשלח**; a failed one shows why and offers **שליחה חוזרת**.
+   Without a linked WhatsApp, the button opens the send page instead: on a phone over HTTPS
+   it opens the share sheet with the image attached; otherwise download + open chat.
+
+## Invoices
+
+Grow documents an invoice link only through a notification (`invoiceNotifyUrl` / the
+dashboard's "invoice created" webhook), not for token charges. So the site tries, in order:
+
+1. Grow's notification, kept in `grow_invoice_notices` even when it arrives before our
+   charge request has returned, and matched by `transactionId`, `transactionCode` or `asmachta`.
+2. `getTransactionInfo` for the charge (the fields it returns are logged, so they can be checked).
+3. A background check repeats this every 3 minutes for the first hour, then every 30 minutes,
+   for two weeks. **הבאת חשבונית** runs it at once.
+
+The link is turned into a picture: a PDF or image is converted; a web page is searched for its
+PDF, and otherwise printed by headless Chromium. If Grow's invoice never comes, **העלאה** takes
+the owner's own PDF or photo of it.
+
+## WhatsApp
+
+Sending uses [wacli](https://github.com/openclaw/wacli) (unofficial, WhatsApp Web protocol),
+installed in the backend image at a pinned version checked by SHA-256. The owner links it
+once from **וואטסאפ** in the top bar: with a pairing code typed in WhatsApp (works on the
+same phone) or a QR code (when the site is open on a computer). It appears in WhatsApp under
+Linked devices and can be removed there or with **ניתוק**.
+
+wacli's session (`session.db`) is copied into the database (`whatsapp_session`) after every
+run and written back on startup, so a redeploy doesn't unlink it. One wacli process runs at
+a time. Only a little chat history is kept on the server while linking (1 day, 200 messages).
 
 If the server restarts in the middle of a charge, that row becomes **נכשל** with a
 note to check Grow before charging again.
@@ -60,9 +90,9 @@ note to check Grow before charging again.
 | Monthly charge | `createTransactionWithToken`, `paymentType=2`, with only `transactionUniqueIdentifier` (kept across a retry after an unknown outcome, so Grow refuses to charge twice; on error 1010 the earlier attempt is looked up) |
 | Invoice | Grow posts `invoiceUrl` to `/api/grow/invoice-notify`; the PDF/image is turned into the PNG sent on WhatsApp |
 
-Webhook URLs carry `?key=GROW_WEBHOOK_KEY`. Still to confirm with Grow (see TODOs in
-`grow.py`): whether token charges send `invoiceNotifyUrl` invoices, and the
-`transactionUniqueIdentifier` size.
+Webhook URLs carry `?key=GROW_WEBHOOK_KEY`. Still to confirm with Grow: whether token
+charges send `invoiceNotifyUrl` invoices, and whether `getTransactionInfo` returns the
+invoice link for them (the server log line `getTransactionInfo … fields:` shows what it returns).
 
 Docs: https://developers.grow.business
 

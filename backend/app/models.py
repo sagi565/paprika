@@ -68,6 +68,12 @@ class Charge(Base):
     grow_unique_id: Mapped[int | None] = mapped_column(BigInteger)
     invoice_image: Mapped[str | None] = mapped_column(String(200))  # key of the InvoiceImage row
     invoice_error: Mapped[str | None] = mapped_column(Text)
+    # Last time we asked Grow for the invoice (the background retry spaces its attempts by it).
+    invoice_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Direct WhatsApp send: None, "queued", "sending" or "failed" (success moves the row to SENT).
+    wa_state: Mapped[str | None] = mapped_column(String(20))
+    wa_error: Mapped[str | None] = mapped_column(Text)
+    wa_message_id: Mapped[str | None] = mapped_column(String(100))
     charged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -88,6 +94,35 @@ class InvoiceImage(Base):
     image: Mapped[bytes] = mapped_column(LargeBinary)
     thumb: Mapped[bytes] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class GrowInvoiceNotice(Base):
+    """An invoice Grow told us about. Kept even when no charge matches yet: Grow can send it
+    before our own request for the charge has returned, and it is matched when the charge is saved."""
+
+    __tablename__ = "grow_invoice_notices"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Every identifier the notice carries (transactionId, transactionCode, asmachta), space-separated.
+    refs: Mapped[str] = mapped_column(String(300))
+    invoice_number: Mapped[str | None] = mapped_column(String(100))
+    invoice_url: Mapped[str] = mapped_column(Text)
+    charge_id: Mapped[int | None] = mapped_column(ForeignKey("charges.id", ondelete="SET NULL"), index=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WhatsAppSession(Base):
+    """The business's WhatsApp link (wacli's session.db). One row, id 1."""
+
+    __tablename__ = "whatsapp_session"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    phone: Mapped[str | None] = mapped_column(String(30))  # the linked number, e.g. 972501234567
+    data: Mapped[bytes] = mapped_column(LargeBinary)  # tar.gz of the wacli session files
+    linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class Passkey(Base):

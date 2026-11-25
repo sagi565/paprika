@@ -16,6 +16,7 @@ import {
   monthLabel,
   shiftMonth,
 } from "../format";
+import { localPhone, refreshWhatsApp, useWhatsApp } from "../whatsapp";
 
 type Filter = "all" | "pending" | "failed" | "charged" | "sent";
 
@@ -71,10 +72,10 @@ export function Billing() {
     load();
   }, [load]);
 
-  // Keep refreshing while a bulk charge runs in the background.
+  // Keep refreshing while charges or WhatsApp sends run in the background.
   useEffect(() => {
-    if (!data?.summary.processing_count) return;
-    const t = setTimeout(load, 1500);
+    if (!data?.summary.processing_count && !data?.summary.sending_count) return;
+    const t = setTimeout(load, data.summary.processing_count ? 1500 : 2500);
     return () => clearTimeout(t);
   }, [data, load]);
 
@@ -85,6 +86,26 @@ export function Billing() {
     [data, filter, query],
   );
   const chargeable = useMemo(() => (data?.rows ?? []).filter(isChargeable), [data]);
+  const sendable = useMemo(() => (data?.rows ?? []).filter(isSendable), [data]);
+  const wa = useWhatsApp();
+  const [confirmingSend, setConfirmingSend] = useState(false);
+
+  // A failed send may mean WhatsApp was unlinked (e.g. removed on the phone): re-read its status.
+  const failedSends = (data?.rows ?? []).filter((r) => r.wa_state === "failed").length;
+  useEffect(() => {
+    if (failedSends && !data?.summary.sending_count) refreshWhatsApp().catch(() => undefined);
+  }, [failedSends, data?.summary.sending_count]);
+
+  const startSendAll = async () => {
+    setConfirmingSend(false);
+    try {
+      const { started } = await api.sendWhatsAppAll(month);
+      toast(started ? `שולחים ${started} חשבוניות בוואטסאפ…` : "אין חשבוניות לשליחה");
+      load();
+    } catch (err) {
+      toastError(err);
+    }
+  };
 
   const startChargeAll = async () => {
     setConfirming(false);
@@ -118,21 +139,40 @@ export function Billing() {
             </button>
           )}
         </div>
-        <button
-          className="btn btn-primary btn-charge"
-          disabled={!chargeable.length || !!s?.processing_count}
-          onClick={() => setConfirming(true)}
-        >
-          {s?.processing_count ? (
-            <>
-              <span className="spinner" aria-hidden /> מחייב…
-            </>
-          ) : (
-            <>
-              חיוב כל הגנים <span className="btn-count">{chargeable.length}</span>
-            </>
+        <div className="head-actions">
+          {wa?.linked && (sendable.length > 0 || !!s?.sending_count) && (
+            <button
+              className="btn btn-whatsapp btn-charge"
+              disabled={!sendable.length || !!s?.sending_count}
+              onClick={() => setConfirmingSend(true)}
+            >
+              {s?.sending_count ? (
+                <>
+                  <span className="spinner" aria-hidden /> שולח בוואטסאפ…
+                </>
+              ) : (
+                <>
+                  <WhatsAppIcon /> שליחת כל החשבוניות <span className="btn-count">{sendable.length}</span>
+                </>
+              )}
+            </button>
           )}
-        </button>
+          <button
+            className="btn btn-primary btn-charge"
+            disabled={!chargeable.length || !!s?.processing_count}
+            onClick={() => setConfirming(true)}
+          >
+            {s?.processing_count ? (
+              <>
+                <span className="spinner" aria-hidden /> מחייב…
+              </>
+            ) : (
+              <>
+                חיוב כל הגנים <span className="btn-count">{chargeable.length}</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {!s ? (
@@ -226,9 +266,35 @@ export function Billing() {
       {confirming && data && (
         <ConfirmChargeAll data={data} chargeable={chargeable} onCancel={() => setConfirming(false)} onConfirm={startChargeAll} />
       )}
+      {confirmingSend && (
+        <Modal
+          title="שליחת כל החשבוניות"
+          onClose={() => setConfirmingSend(false)}
+          footer={
+            <>
+              <button className="btn" onClick={() => setConfirmingSend(false)}>
+                ביטול
+              </button>
+              <button className="btn btn-whatsapp" onClick={startSendAll}>
+                <WhatsAppIcon /> שליחה
+              </button>
+            </>
+          }
+        >
+          <p className="lead">
+            {sendable.length} חשבוניות יישלחו עכשיו בוואטסאפ מהמספר{" "}
+            <bdi className="mono">{localPhone(wa?.phone ?? null)}</bdi>, כל אחת לטלפון של הגן שלה.
+          </p>
+          <p className="note">ההודעות יוצאות אחת אחרי השנייה, בהפרש של כמה שניות. אפשר לסגור את הדף בינתיים.</p>
+        </Modal>
+      )}
     </div>
   );
 }
+
+/** Charged, with an invoice image, not sent and not already on its way. */
+const isSendable = (r: Charge) =>
+  r.status === "charged" && r.has_invoice && r.wa_state !== "queued" && r.wa_state !== "sending";
 
 function RowsSkeleton() {
   return (
@@ -275,8 +341,11 @@ function ChargeRow({ row, onChanged }: { row: Charge; onChanged: () => void }) {
       <div className="c-status">
         <StatusBadge status={row.status} />
         {row.status === "failed" && row.error && <span className="note note-bad">{row.error}</span>}
-        {(row.status === "charged" || row.status === "sent") && row.invoice_error && (
+        {(row.status === "charged" || row.status === "sent") && !row.has_invoice && row.invoice_error && (
           <span className="note note-warn">{row.invoice_error}</span>
+        )}
+        {row.status === "charged" && row.wa_state === "failed" && row.wa_error && (
+          <span className="note note-bad">{row.wa_error}</span>
         )}
         {row.status === "pending" && !row.client.has_card_token && (
           <span className="note note-warn">
@@ -370,20 +439,108 @@ function RowActions({ row, onChanged }: { row: Charge; onChanged: () => void }) 
     case "processing":
       return null;
     default:
-      if (!row.has_invoice) {
-        return (
-          <button className="btn btn-sm" disabled={busy} onClick={() => run(async () => void (await api.refreshInvoice(row.id)))}>
-            הבאת חשבונית
-          </button>
-        );
-      }
+      if (!row.has_invoice) return <MissingInvoice row={row} onChanged={onChanged} />;
       return (
         <div className="invoice-actions">
-          <InvoiceThumb row={row} />
-          {row.status === "sent" ? <SentLabel /> : <WhatsAppLink id={row.id} />}
+          <InvoiceThumb row={row} onChanged={onChanged} />
+          <SendAction row={row} onChanged={onChanged} />
         </div>
       );
   }
+}
+
+/** No invoice image yet: ask Grow again, or upload the owner's own copy (PDF or photo). */
+function MissingInvoice({ row, onChanged }: { row: Charge; onChanged: () => void }) {
+  const [busy, setBusy] = useState<"fetch" | "upload" | null>(null);
+
+  const fetchAgain = async () => {
+    setBusy("fetch");
+    try {
+      const updated = await api.refreshInvoice(row.id);
+      if (updated.has_invoice) toast(`החשבונית של ${row.client.name} הגיעה`);
+      else toast(updated.invoice_error ?? "החשבונית עוד לא הגיעה מ-Grow", "error");
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setBusy(null);
+      onChanged();
+    }
+  };
+
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy("upload");
+    try {
+      await api.uploadInvoice(row.id, file);
+      toast("החשבונית נשמרה");
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setBusy(null);
+      onChanged();
+    }
+  };
+
+  return (
+    <div className="invoice-actions">
+      <button className="btn btn-sm" disabled={!!busy} onClick={fetchAgain}>
+        {busy === "fetch" ? (
+          <>
+            <span className="spinner" aria-hidden /> בודק ב-Grow…
+          </>
+        ) : (
+          "הבאת חשבונית"
+        )}
+      </button>
+      <label className={busy ? "btn btn-sm btn-ghost is-disabled" : "btn btn-sm btn-ghost"} title="PDF או תמונה של החשבונית">
+        {busy === "upload" ? "מעלה…" : "העלאה"}
+        <input
+          type="file"
+          accept="application/pdf,image/*"
+          className="visually-hidden"
+          disabled={!!busy}
+          onChange={(e) => {
+            upload(e.target.files?.[0]);
+            e.target.value = "";
+          }}
+        />
+      </label>
+    </div>
+  );
+}
+
+/** Send from the business's WhatsApp when it is linked; otherwise the phone's share sheet (/send). */
+function SendAction({ row, onChanged }: { row: Charge; onChanged: () => void }) {
+  const wa = useWhatsApp();
+  const [busy, setBusy] = useState(false);
+
+  if (row.status === "sent") return <SentLabel />;
+  if (row.wa_state === "queued" || row.wa_state === "sending") {
+    return (
+      <span className="sending-label">
+        <span className="spinner" aria-hidden /> {row.wa_state === "queued" ? "ממתין לשליחה…" : "שולח…"}
+      </span>
+    );
+  }
+  if (!wa?.linked) return <WhatsAppLink id={row.id} />;
+
+  const send = async () => {
+    setBusy(true);
+    try {
+      await api.sendWhatsApp(row.id);
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setBusy(false);
+      onChanged();
+    }
+  };
+
+  return (
+    <button className="btn btn-sm btn-whatsapp" disabled={busy} onClick={send}>
+      <WhatsAppIcon /> {row.wa_state === "failed" ? "שליחה חוזרת" : "שליחה בוואטסאפ"}
+    </button>
+  );
 }
 
 function SentLabel() {
@@ -402,8 +559,9 @@ function WhatsAppLink({ id }: { id: number }) {
   );
 }
 
-function InvoiceThumb({ row }: { row: Charge }) {
+function InvoiceThumb({ row, onChanged }: { row: Charge; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
+  const fileName = `invoice-${row.month}-${row.id}.png`;
   return (
     <>
       <button className="thumb" onClick={() => setOpen(true)} aria-label={`הצגת החשבונית של ${row.client.name}`}>
@@ -414,7 +572,14 @@ function InvoiceThumb({ row }: { row: Charge }) {
           title={`חשבונית · ${row.client.name}`}
           onClose={() => setOpen(false)}
           wide
-          footer={row.status === "sent" ? <SentLabel /> : <WhatsAppLink id={row.id} />}
+          footer={
+            <>
+              <a className="btn" href={api.invoiceUrl(row.id, row.invoice_key)} download={fileName}>
+                הורדה
+              </a>
+              <SendAction row={row} onChanged={onChanged} />
+            </>
+          }
         >
           <img className="lightbox-img" src={api.invoiceUrl(row.id, row.invoice_key)} alt={`חשבונית ${row.client.name}`} />
         </Modal>

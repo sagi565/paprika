@@ -2,10 +2,12 @@ import { useEffect, useState, type ReactNode } from "react";
 import { BrowserRouter, Link, Navigate, NavLink, Route, Routes } from "react-router-dom";
 import { api, UNAUTHORIZED_EVENT, type Me } from "./api";
 import { Brand } from "./components/Brand";
-import { FingerprintIcon, GroupIcon, HomeIcon, LogoutIcon, ReceiptIcon } from "./components/icons";
+import { FingerprintIcon, GroupIcon, HomeIcon, LogoutIcon, ReceiptIcon, WhatsAppIcon } from "./components/icons";
 import { PasskeysModal } from "./components/PasskeysModal";
 import { Toaster } from "./components/toast";
 import { WakeNotice } from "./components/WakeNotice";
+import { WhatsAppModal } from "./components/WhatsAppModal";
+import { useWhatsApp } from "./whatsapp";
 import { Billing } from "./pages/Billing";
 import { Clients } from "./pages/Clients";
 import { Home } from "./pages/Home";
@@ -14,6 +16,8 @@ import { Send } from "./pages/Send";
 
 function Layout({ me, onLogout, children }: { me: Me; onLogout: () => void; children: ReactNode }) {
   const [showPasskeys, setShowPasskeys] = useState(false);
+  const [showWhatsApp, setShowWhatsApp] = useState(false);
+  const wa = useWhatsApp();
   return (
     <>
       {me.grow_mode === "mock" && (
@@ -34,6 +38,17 @@ function Layout({ me, onLogout, children }: { me: Me; onLogout: () => void; chil
             <NavLink to="/clients">גנים</NavLink>
           </nav>
           <div className="topbar-actions">
+            <button
+              className="top-btn"
+              onClick={() => setShowWhatsApp(true)}
+              aria-label={wa?.linked ? "וואטסאפ (מחובר)" : "וואטסאפ (לא מחובר)"}
+            >
+              <span className="top-icon">
+                <WhatsAppIcon />
+                {wa && <span className={wa.linked ? "top-dot top-dot-on" : "top-dot"} aria-hidden />}
+              </span>
+              <span>וואטסאפ</span>
+            </button>
             <button className="top-btn" onClick={() => setShowPasskeys(true)} aria-label="טביעת אצבע">
               <FingerprintIcon />
               <span>טביעת אצבע</span>
@@ -46,6 +61,7 @@ function Layout({ me, onLogout, children }: { me: Me; onLogout: () => void; chil
         </div>
       </header>
       {showPasskeys && <PasskeysModal onClose={() => setShowPasskeys(false)} />}
+      {showWhatsApp && <WhatsAppModal onClose={() => setShowWhatsApp(false)} />}
       <main className="page">{children}</main>
       <nav className="tabbar" aria-label="ניווט">
         <NavLink to="/" end>

@@ -7,6 +7,7 @@ import { CheckIcon, WhatsAppIcon } from "../components/icons";
 import { StatusBadge } from "../components/StatusBadge";
 import { toast, toastError } from "../components/toast";
 import { formatMoney, formatPhone, formatShortDateTime, monthLabel, whatsappNumber } from "../format";
+import { localPhone, refreshWhatsApp, useWhatsApp } from "../whatsapp";
 
 function shareMessage(row: ChargeDetail): string {
   const hello = row.client.contact_name ? `שלום ${row.client.contact_name},` : "שלום,";
@@ -18,6 +19,7 @@ export function Send() {
   const navigate = useNavigate();
   const [row, setRow] = useState<ChargeDetail | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const wa = useWhatsApp();
 
   useEffect(() => {
     setRow(null);
@@ -34,6 +36,19 @@ export function Send() {
       })
       .catch(toastError);
   }, [chargeId]);
+
+  // Follow a direct WhatsApp send until it is done.
+  const waBusy = row?.wa_state === "queued" || row?.wa_state === "sending";
+  useEffect(() => {
+    if (!waBusy) return;
+    const t = setTimeout(() => api.charge(chargeId).then(setRow, () => undefined), 2000);
+    return () => clearTimeout(t);
+  }, [row, waBusy, chargeId]);
+  // A failed send may mean WhatsApp was unlinked: re-read its status.
+  const waFailed = row?.wa_state === "failed";
+  useEffect(() => {
+    if (waFailed) refreshWhatsApp().catch(() => undefined);
+  }, [waFailed]);
 
   if (!row) {
     return (
@@ -64,6 +79,15 @@ export function Send() {
 
   const confirmMarkSent = () => {
     if (window.confirm("לסמן שהחשבונית נשלחה? אחרי הסימון לא יהיה אפשר לשלוח אותה שוב.")) markSent();
+  };
+
+  const sendDirect = async () => {
+    try {
+      const updated = await api.sendWhatsApp(row.id);
+      setRow({ ...row, ...updated });
+    } catch (err) {
+      toastError(err);
+    }
   };
 
   const share = async () => {
@@ -110,6 +134,7 @@ export function Send() {
 
       {row.has_invoice && (
         <div className="send-actions">
+          {!sent && row.wa_state === "failed" && row.wa_error && <p className="note note-bad block">{row.wa_error}</p>}
           {sent ? (
             <div className="sent-banner">
               <CheckIcon size={20} />
@@ -118,6 +143,24 @@ export function Send() {
                 {row.sent_at && <span className="sub mono">{formatShortDateTime(row.sent_at)}</span>}
               </div>
             </div>
+          ) : wa?.linked ? (
+            <>
+              <button className="btn btn-whatsapp btn-block btn-lg" onClick={sendDirect} disabled={waBusy}>
+                {waBusy ? (
+                  <>
+                    <span className="spinner" aria-hidden /> שולח…
+                  </>
+                ) : (
+                  <>
+                    <WhatsAppIcon size={22} /> {row.wa_state === "failed" ? "שליחה חוזרת" : "שליחה בוואטסאפ"}
+                  </>
+                )}
+              </button>
+              <p className="hint">
+                נשלח מהמספר <bdi className="mono">{localPhone(wa.phone)}</bdi> ישר ל{row.client.contact_name ?? row.client.name},
+                לטלפון <bdi className="mono">{formatPhone(row.client.phone)}</bdi>.
+              </p>
+            </>
           ) : canShareFile ? (
             <>
               <button className="btn btn-whatsapp btn-block btn-lg" onClick={share}>

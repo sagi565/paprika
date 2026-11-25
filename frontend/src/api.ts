@@ -41,6 +41,9 @@ export interface Charge {
   invoice_error: string | null;
   has_invoice: boolean;
   invoice_key: string | null;
+  /** Direct WhatsApp send from the business's number. */
+  wa_state: "queued" | "sending" | "failed" | null;
+  wa_error: string | null;
   grow_transaction_id: string | null;
   charged_at: string | null;
   sent_at: string | null;
@@ -61,6 +64,7 @@ export interface MonthSummary {
   charged_amount: number;
   failed_count: number;
   sent_count: number;
+  sending_count: number;
 }
 
 export interface MonthData {
@@ -111,6 +115,23 @@ export interface Passkey {
   name: string;
   created_at: string;
   last_used_at: string | null;
+}
+
+/** The business's WhatsApp, linked to the server through wacli. */
+export interface WhatsAppStatus {
+  available: boolean;
+  linked: boolean;
+  phone: string | null;
+  linked_at: string | null;
+  pairing: {
+    method: "qr" | "code";
+    qr: string | null;
+    qr_svg: string | null;
+    code: string | null;
+    connected: boolean;
+    error: string | null;
+    done: boolean;
+  } | null;
 }
 
 export class ApiError extends Error {
@@ -196,7 +217,20 @@ export const api = {
   updateAmount: (id: number, amount: number | null) => request<Charge>(`/charges/${id}`, json("PATCH", { amount })),
   chargeOne: (id: number) => request<Charge>(`/charges/${id}/charge`, json("POST")),
   refreshInvoice: (id: number) => request<Charge>(`/charges/${id}/invoice/refresh`, json("POST")),
+  uploadInvoice: (id: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<Charge>(`/charges/${id}/invoice/upload`, { method: "POST", body: form });
+  },
   markSent: (id: number, sent: boolean) => request<Charge>(`/charges/${id}/sent`, json("POST", { sent })),
+  sendWhatsApp: (id: number) => request<Charge>(`/charges/${id}/whatsapp`, json("POST")),
+  sendWhatsAppAll: (month: string) => request<{ started: number }>(`/months/${month}/whatsapp-all`, json("POST")),
+
+  whatsapp: () => request<WhatsAppStatus>("/whatsapp"),
+  whatsappLink: (method: "qr" | "code", phone?: string) =>
+    request<WhatsAppStatus>("/whatsapp/link", json("POST", { method, phone: phone ?? null })),
+  whatsappCancel: () => request<WhatsAppStatus>("/whatsapp/link/cancel", json("POST")),
+  whatsappLogout: () => request<WhatsAppStatus>("/whatsapp/logout", json("POST")),
   invoiceUrl: (id: number, key?: string | null) => `/api/charges/${id}/invoice.png${key ? `?v=${key}` : ""}`,
   invoiceThumbUrl: (id: number, key?: string | null) =>
     `/api/charges/${id}/invoice-thumb.png${key ? `?v=${key}` : ""}`,

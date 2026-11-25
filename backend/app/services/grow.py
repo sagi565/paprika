@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import io
 import json
+import logging
 import re
 import time
 import uuid
@@ -24,6 +25,8 @@ import httpx
 
 from ..config import settings
 from ..models import Client
+
+log = logging.getLogger(__name__)
 
 
 class ChargeFailed(Exception):
@@ -45,6 +48,14 @@ MAX_UNIQUE_ID = 4_294_967_295
 
 class InvoiceNotReady(Exception):
     """Grow has not sent the invoice for this transaction yet."""
+
+
+@dataclass
+class InvoiceSource:
+    """Where the invoice is: Grow's link (a PDF, an image or a web page), or the document itself."""
+
+    url: str | None = None
+    data: bytes | None = None
 
 
 @dataclass
@@ -102,8 +113,9 @@ class GrowGateway(ABC):
         """The completed transaction sent with this unique id, or None if Grow has none."""
 
     @abstractmethod
-    def fetch_invoice(self, transaction_id: str, raw: dict) -> bytes:
-        """Return the invoice document (PDF or image bytes). Raise InvoiceNotReady if not issued yet."""
+    def find_invoice(self, transaction_id: str, raw: dict) -> InvoiceSource:
+        """Where the invoice is. May add what it learns (e.g. invoice_url) to `raw`, which the
+        caller saves. Raise InvoiceNotReady if Grow has not issued it yet."""
 
     @abstractmethod
     def start_card_save(self, client_id: int, customer: CustomerInfo) -> CardSaveStart:
@@ -161,6 +173,25 @@ def _flatten(node, prefix: str = ""):
             yield from _flatten(value, f"{prefix}[{i}]")
     elif node is not None:
         yield prefix, node
+
+
+_INVOICE_KEYS = ("invoice_url", "invoiceUrl", "invoiceLink", "invoice_link", "documentUrl", "document_url")
+_INVOICE_KEY_HINT = re.compile(r"invoice|document|receipt|kabala|heshbonit", re.I)
+
+
+def find_invoice_url(node) -> str | None:
+    """The invoice link anywhere in a Grow response or notification: a known field name first,
+    then any https value whose key mentions an invoice/document."""
+    found = []
+    for item in _dicts(node):
+        for key in _INVOICE_KEYS:
+            value = item.get(key)
+            if isinstance(value, str) and value.startswith("https://"):
+                return value
+        for key, value in item.items():
+            if isinstance(value, str) and value.startswith("https://") and _INVOICE_KEY_HINT.search(str(key)):
+                found.append(value)
+    return found[0] if found else None
 
 
 def _dicts(node):
@@ -263,15 +294,40 @@ class LiveGrowGateway(GrowGateway):
                 return ChargeResult(transaction_id=str(transaction_id), raw=raw)
         return None
 
-    def fetch_invoice(self, transaction_id: str, raw: dict) -> bytes:
-        url = raw.get("invoice_url")
+    def find_invoice(self, transaction_id: str, raw: dict) -> InvoiceSource:
+        # 1. Grow's invoice notification (stored in raw by the webhook), or the charge response.
+        url = find_invoice_url(raw)
+        # 2. Ask Grow about the transaction. Token charges get no invoiceNotifyUrl in Grow's
+        #    docs, so this is how their invoice link is found when no notification came.
+        if not url and transaction_id and raw.get("transactionToken"):
+            info = self._transaction_info(transaction_id, str(raw["transactionToken"]))
+            url = find_invoice_url(info)
+            for key in ("invoiceNumber", "invoice_number"):
+                number = next((d[key] for d in _dicts(info) if d.get(key)), None)
+                if number:
+                    raw.setdefault("invoice_number", str(number))
         if not url:
             raise InvoiceNotReady
-        if not str(url).startswith("https://"):
-            raise ValueError(f"unexpected invoice URL: {url}")
-        res = httpx.get(url, follow_redirects=True, timeout=30)
-        res.raise_for_status()
-        return res.content
+        raw["invoice_url"] = url
+        return InvoiceSource(url=url)
+
+    def _transaction_info(self, transaction_id: str, transaction_token: str) -> dict:
+        try:
+            info = self._post(
+                "getTransactionInfo",
+                {
+                    "pageCode": settings.grow_page_code,
+                    "transactionId": transaction_id,
+                    "transactionToken": transaction_token,
+                },
+            )
+        except Exception as exc:
+            log.warning("getTransactionInfo %s failed: %s", transaction_id, exc)
+            return {}
+        # Logged so the fields Grow returns for token charges can be checked in the server log.
+        keys = sorted({k for d in _dicts(info) for k in d})
+        log.info("getTransactionInfo %s fields: %s", transaction_id, ", ".join(keys))
+        return info
 
     def start_card_save(self, client_id: int, customer: CustomerInfo) -> CardSaveStart:
         public = settings.public_url.rstrip("/")
@@ -325,13 +381,13 @@ class MockGrowGateway(GrowGateway):
     def find_token_charge(self, card_token: str, unique_id: int) -> ChargeResult | None:
         return None  # mock charges never fail halfway, so there is never anything to find
 
-    def fetch_invoice(self, transaction_id: str, raw: dict) -> bytes:
+    def find_invoice(self, transaction_id: str, raw: dict) -> InvoiceSource:
         from .mock_invoice import render_mock_invoice
 
         image = render_mock_invoice(raw)
         buf = io.BytesIO()
         image.save(buf, "PDF", resolution=150)
-        return buf.getvalue()
+        return InvoiceSource(data=buf.getvalue())
 
     def start_card_save(self, client_id: int, customer: CustomerInfo) -> CardSaveStart:
         return CardSaveStart(token=f"mock-token-{uuid.uuid4().hex[:12]}")

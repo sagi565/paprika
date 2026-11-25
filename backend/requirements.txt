@@ -10,3 +10,4 @@ pillow==11.0.0
 python-bidi==0.4.2
 httpx==0.28.1
 webauthn==3.0.1
+segno==1.6.1

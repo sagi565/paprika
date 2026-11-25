@@ -72,6 +72,8 @@ class ChargeOut(BaseModel):
     invoice_error: str | None
     has_invoice: bool
     invoice_key: str | None  # changes when the invoice image is replaced (cache busting)
+    wa_state: str | None  # direct WhatsApp send: queued / sending / failed
+    wa_error: str | None
     grow_transaction_id: str | None
     charged_at: datetime | None
     sent_at: datetime | None
@@ -89,6 +91,8 @@ class ChargeOut(BaseModel):
             invoice_error=ch.invoice_error,
             has_invoice=bool(ch.invoice_image),
             invoice_key=ch.invoice_image,
+            wa_state=ch.wa_state,
+            wa_error=ch.wa_error,
             grow_transaction_id=ch.grow_transaction_id,
             charged_at=ch.charged_at,
             sent_at=ch.sent_at,
@@ -110,6 +114,7 @@ class MonthSummary(BaseModel):
     charged_amount: float
     failed_count: int
     sent_count: int
+    sending_count: int  # queued for / in the middle of a direct WhatsApp send
 
 
 class MonthOut(BaseModel):
@@ -200,6 +205,39 @@ class ImportResult(BaseModel):
     created: int
     skipped: int
     errors: list[str]
+
+
+class WhatsAppPairing(BaseModel):
+    method: str
+    qr: str | None
+    qr_svg: str | None = None  # the QR as an SVG image, drawn on the server
+    code: str | None
+    connected: bool
+    error: str | None
+    done: bool
+
+
+class WhatsAppStatus(BaseModel):
+    available: bool  # wacli is installed on the server
+    linked: bool
+    phone: str | None
+    linked_at: datetime | None
+    pairing: WhatsAppPairing | None
+
+
+class WhatsAppLinkIn(BaseModel):
+    method: str = Field(pattern="^(qr|code)$")
+    phone: str | None = None
+
+    @field_validator("phone")
+    @classmethod
+    def check_phone(cls, v: str | None) -> str | None:
+        if v is None or not v.strip():
+            return None
+        local = normalize_phone(v)
+        if not re.fullmatch(r"05\d{8}", local):
+            raise ValueError("צריך את מספר הנייד שהוואטסאפ רשום עליו (05X)")
+        return local
 
 
 class CardSaveIn(BaseModel):
