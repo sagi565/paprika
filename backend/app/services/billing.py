@@ -4,7 +4,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -13,6 +13,7 @@ from ..models import Charge, ChargeStatus, Client
 from . import invoices
 from .grow import (
     DUPLICATE_UNIQUE_ID,
+    MAX_UNIQUE_ID,
     ChargeFailed,
     ChargeRequest,
     ChargeResult,
@@ -20,7 +21,6 @@ from .grow import (
     InvoiceNotReady,
     dump_raw,
     get_gateway,
-    new_unique_id,
 )
 
 log = logging.getLogger(__name__)
@@ -107,8 +107,7 @@ def process_charge(charge_id: int) -> None:
             return
         if ch.grow_unique_id is None:
             # Saved before calling Grow, so a crash mid-request leaves it for the retry.
-            ch.grow_unique_id = new_unique_id()
-            db.commit()
+            _assign_unique_id(db, ch)
         try:
             result = gateway.charge_with_token(
                 ChargeRequest(
@@ -135,6 +134,16 @@ def process_charge(charge_id: int) -> None:
             return
 
         _mark_charged(db, ch, result)
+
+
+def _assign_unique_id(db: Session, ch: Charge) -> None:
+    """A transactionUniqueIdentifier never used before, even by a row that later cleared it
+    (Grow refuses any value it has seen, whatever happened to that request)."""
+    value = db.scalar(text("SELECT nextval('grow_unique_id_seq')"))
+    if value > MAX_UNIQUE_ID:
+        raise RuntimeError("Grow unique identifiers ran past 32 bits")
+    ch.grow_unique_id = value
+    db.commit()
 
 
 def _resolve_duplicate(db: Session, ch: Charge, card_token: str) -> None:

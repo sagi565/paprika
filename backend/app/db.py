@@ -25,6 +25,14 @@ NEW_COLUMNS = (
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS card_consent_at TIMESTAMPTZ",
     "ALTER TABLE charges ADD COLUMN IF NOT EXISTS grow_unique_id BIGINT",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS grow_card_transaction_id VARCHAR(100)",
+    # Old 13-digit (millisecond) identifiers are rejected by Grow (error 1013); start again.
+    "UPDATE charges SET grow_unique_id = NULL WHERE grow_unique_id > 4294967295",
+    "CREATE UNIQUE INDEX IF NOT EXISTS charges_grow_unique_id ON charges (grow_unique_id)",
+    # transactionUniqueIdentifier values: never repeated; on startup moved to at least the
+    # current Unix time (fits Grow's 32-bit limit until 2106), so a reset database can't reuse one.
+    "CREATE SEQUENCE IF NOT EXISTS grow_unique_id_seq",
+    "SELECT setval('grow_unique_id_seq', GREATEST((SELECT last_value FROM grow_unique_id_seq),"
+    " extract(epoch from now())::bigint))",
 )
 
 

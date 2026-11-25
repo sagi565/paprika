@@ -37,11 +37,10 @@ class ChargeFailed(Exception):
 DUPLICATE_UNIQUE_ID = 1010  # Grow: this transactionUniqueIdentifier was already used
 
 
-def new_unique_id() -> int:
-    """A fresh numeric transactionUniqueIdentifier (milliseconds since 1970).
-
-    Time based rather than the charge id, so it stays unique even if the database is reset."""
-    return int(time.time() * 1000)
+# Grow error 1013: transactionUniqueIdentifier must be a positive integer that fits in 32 bits.
+# Values come from the grow_unique_id_seq sequence (see db.py): never repeated, and moved
+# forward to the current Unix time on every startup, so a database reset can't reuse one.
+MAX_UNIQUE_ID = 4_294_967_295
 
 
 class InvoiceNotReady(Exception):
