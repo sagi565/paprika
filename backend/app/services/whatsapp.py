@@ -35,6 +35,9 @@ log = logging.getLogger(__name__)
 
 STORE_DIR = settings.data_dir / "wacli"
 SESSION_FILES = ("session.db", "session.db-wal", "session.db-shm")
+# wacli's local copy of chats and messages. Sending doesn't need it, and wacli refuses to link
+# while it already holds as many messages as the cap, so a new link starts without it.
+HISTORY_FILES = ("wacli.db", "wacli.db-wal", "wacli.db-shm")
 PAIR_TIMEOUT = 240  # seconds a pairing may take before we stop it
 SEND_TIMEOUT = 150
 SEND_GAP = 4  # seconds between sends in a batch; WhatsApp flags rapid-fire senders
@@ -87,7 +90,9 @@ def _env() -> dict:
         **os.environ,
         "WACLI_STORE_DIR": str(STORE_DIR),
         # Linking asks the phone for recent chats; keep only a little of it on the server.
-        "WACLI_SYNC_MAX_MESSAGES": "200",
+        # The phone sends at least one message per chat, and a business number can have
+        # hundreds of chats, so the cap must stay well above that.
+        "WACLI_SYNC_MAX_MESSAGES": "5000",
         "WACLI_SYNC_MAX_DB_SIZE": "20MB",
     }
 
@@ -137,7 +142,7 @@ def _is_logged_out(message: str) -> bool:
 
 
 def _clear_local() -> None:
-    for name in SESSION_FILES:
+    for name in SESSION_FILES + HISTORY_FILES:
         (STORE_DIR / name).unlink(missing_ok=True)
 
 
@@ -295,10 +300,24 @@ def _watch_pairing(p: Pairing) -> None:
         returncode = p.proc.wait()
         env = _envelope(p.proc.stdout.read())
         result = env.get("data") if isinstance(env.get("data"), dict) else env
-        if returncode == 0 and result.get("authenticated"):
-            phone = _linked_phone()
+        linked = returncode == 0 and bool(result.get("authenticated"))
+        auth: dict | None = None
+        if not linked and not p.cancelled:
+            # The phone may have approved the link before the first sync failed (e.g. it hit
+            # the storage cap). The device is linked all the same, so keep it rather than
+            # leave an orphan in the phone's Linked devices.
+            auth = _auth_status()
+            linked = bool(auth.get("authenticated"))
+            if linked:
+                log.warning(
+                    "wacli auth exited %s after linking (%s); keeping the link",
+                    returncode, p.error or env.get("error"),
+                )
+        if linked:
+            phone = _linked_phone(auth)
             with SessionLocal() as db:
                 _save(db, phone)
+            p.error = None
             log.info("WhatsApp linked (%s)", phone)
         else:
             _clear_local()
@@ -317,10 +336,17 @@ def _watch_pairing(p: Pairing) -> None:
         _run_lock.release()
 
 
-def _linked_phone() -> str | None:
+def _auth_status() -> dict:
+    """wacli's {"authenticated": bool, "phone": ...}. Caller holds _run_lock."""
+    if not (STORE_DIR / "session.db").exists():
+        return {}
+    data = _run(["auth", "status"], timeout=30).get("data")
+    return data if isinstance(data, dict) else {}
+
+
+def _linked_phone(auth: dict | None = None) -> str | None:
     """Caller holds _run_lock."""
-    env = _run(["auth", "status"], timeout=30)
-    data = env.get("data") or {}
+    data = auth if auth is not None else _auth_status()
     return str(data.get("phone") or "") or None
 
 

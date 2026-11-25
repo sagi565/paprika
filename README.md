@@ -73,7 +73,9 @@ Linked devices and can be removed there or with **ניתוק**.
 
 wacli's session (`session.db`) is copied into the database (`whatsapp_session`) after every
 run and written back on startup, so a redeploy doesn't unlink it. One wacli process runs at
-a time. Only a little chat history is kept on the server while linking (1 day, 200 messages).
+a time. Only a little chat history is kept on the server while linking (1 day, one message per
+chat, at most 5,000 messages / 20MB), and a new link starts without it. If that first sync stops
+early (for example at the cap) after the phone approved, the link is kept anyway.
 
 If the server restarts in the middle of a charge, that row becomes **נכשל** with a
 note to check Grow before charging again.
