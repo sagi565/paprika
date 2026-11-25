@@ -1,4 +1,5 @@
 import logging
+import re
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -12,6 +13,21 @@ from .services.billing import recover_interrupted, start_invoice_watcher
 from .services.invoices import import_legacy_files
 
 logging.basicConfig(level=logging.INFO)
+
+_KEY_PARAM = re.compile(r"([?&]key=)[^&\s]*")
+
+
+class HideWebhookKey(logging.Filter):
+    """Grow calls our webhooks with ?key=<GROW_WEBHOOK_KEY>; keep it out of the access log."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(_KEY_PARAM.sub(r"\1***", a) if isinstance(a, str) else a for a in record.args)
+        return True
+
+
+# uvicorn has set up its loggers by the time it imports this module.
+logging.getLogger("uvicorn.access").addFilter(HideWebhookKey())
 
 
 @asynccontextmanager

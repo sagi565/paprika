@@ -449,7 +449,8 @@ function RowActions({ row, onChanged }: { row: Charge; onChanged: () => void }) 
   }
 }
 
-/** No invoice image yet: ask Grow again, or upload the owner's own copy (PDF or photo). */
+/** No invoice image yet: look again (a link Grow sent, a failed download), or upload the
+ * owner's own copy (PDF or photo). */
 function MissingInvoice({ row, onChanged }: { row: Charge; onChanged: () => void }) {
   const [busy, setBusy] = useState<"fetch" | "upload" | null>(null);
 
@@ -458,7 +459,8 @@ function MissingInvoice({ row, onChanged }: { row: Charge; onChanged: () => void
     try {
       const updated = await api.refreshInvoice(row.id);
       if (updated.has_invoice) toast(`החשבונית של ${row.client.name} הגיעה`);
-      else toast(updated.invoice_error ?? "החשבונית עוד לא הגיעה מ-Grow", "error");
+      // Still waiting is not an error; the text says what's going on.
+      else toast(updated.invoice_error ?? "Grow עוד לא שלח את החשבונית");
     } catch (err) {
       toastError(err);
     } finally {

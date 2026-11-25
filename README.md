@@ -50,14 +50,17 @@ enabling the fingerprint again. Browsers allow passkeys only over HTTPS or on `l
 
 ## Invoices
 
-Grow documents an invoice link only through a notification (`invoiceNotifyUrl` / the
-dashboard's "invoice created" webhook), not for token charges. So the site tries, in order:
+For a token charge, Grow gives the invoice link only in its dashboard's "invoice created"
+webhook, which Grow's support turns on (see [DEPLOY.md](DEPLOY.md)). There is nothing to ask
+Grow for: `createTransactionWithToken` takes no `invoiceNotifyUrl` in Grow's docs, and
+`getTransactionInfo` has no invoice field and answers token charges with error 716. So:
 
-1. Grow's notification, kept in `grow_invoice_notices` even when it arrives before our
+1. Grow's notification is kept in `grow_invoice_notices` even when it arrives before our
    charge request has returned, and matched by `transactionId`, `transactionCode` or `asmachta`.
-2. `getTransactionInfo` for the charge (the fields it returns are logged, so they can be checked).
-3. A background check repeats this every 3 minutes for the first hour, then every 30 minutes,
-   for two weeks. **הבאת חשבונית** runs it at once.
+2. A background check looks again every 3 minutes for the first hour, then every 30 minutes,
+   for two weeks: it picks up a notification matched late and retries a download that failed.
+   **הבאת חשבונית** runs it at once. It never calls Grow.
+3. Grow's sandbox has sent no invoice notification so far, so a sandbox charge waits for **העלאה**.
 
 The link is turned into a picture: a PDF or image is converted; a web page is searched for its
 PDF, and otherwise printed by headless Chromium. If Grow's invoice never comes, **העלאה** takes
@@ -92,9 +95,9 @@ note to check Grow before charging again.
 | Monthly charge | `createTransactionWithToken`, `paymentType=2`, with only `transactionUniqueIdentifier` (kept across a retry after an unknown outcome, so Grow refuses to charge twice; on error 1010 the earlier attempt is looked up) |
 | Invoice | Grow posts `invoiceUrl` to `/api/grow/invoice-notify`; the PDF/image is turned into the PNG sent on WhatsApp |
 
-Webhook URLs carry `?key=GROW_WEBHOOK_KEY`. Still to confirm with Grow: whether token
-charges send `invoiceNotifyUrl` invoices, and whether `getTransactionInfo` returns the
-invoice link for them (the server log line `getTransactionInfo … fields:` shows what it returns).
+Webhook URLs carry `?key=GROW_WEBHOOK_KEY`; the access log shows it as `key=***`.
+Still to confirm with Grow: that token charges get an invoice automatically, and that the
+"invoice created" webhook is sent for them.
 
 Docs: https://developers.grow.business
 

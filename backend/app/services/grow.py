@@ -12,7 +12,6 @@ import hashlib
 import hmac
 import io
 import json
-import logging
 import re
 import time
 import uuid
@@ -25,8 +24,6 @@ import httpx
 
 from ..config import settings
 from ..models import Client
-
-log = logging.getLogger(__name__)
 
 
 class ChargeFailed(Exception):
@@ -295,39 +292,14 @@ class LiveGrowGateway(GrowGateway):
         return None
 
     def find_invoice(self, transaction_id: str, raw: dict) -> InvoiceSource:
-        # 1. Grow's invoice notification (stored in raw by the webhook), or the charge response.
+        # A token charge's invoice link comes only in Grow's "invoice created" notification,
+        # stored in raw by the webhook. There is nothing to ask Grow for: getTransactionInfo
+        # has no invoice field in Grow's docs, and it answers token charges with error 716.
         url = find_invoice_url(raw)
-        # 2. Ask Grow about the transaction. Token charges get no invoiceNotifyUrl in Grow's
-        #    docs, so this is how their invoice link is found when no notification came.
-        if not url and transaction_id and raw.get("transactionToken"):
-            info = self._transaction_info(transaction_id, str(raw["transactionToken"]))
-            url = find_invoice_url(info)
-            for key in ("invoiceNumber", "invoice_number"):
-                number = next((d[key] for d in _dicts(info) if d.get(key)), None)
-                if number:
-                    raw.setdefault("invoice_number", str(number))
         if not url:
             raise InvoiceNotReady
         raw["invoice_url"] = url
         return InvoiceSource(url=url)
-
-    def _transaction_info(self, transaction_id: str, transaction_token: str) -> dict:
-        try:
-            info = self._post(
-                "getTransactionInfo",
-                {
-                    "pageCode": settings.grow_page_code,
-                    "transactionId": transaction_id,
-                    "transactionToken": transaction_token,
-                },
-            )
-        except Exception as exc:
-            log.warning("getTransactionInfo %s failed: %s", transaction_id, exc)
-            return {}
-        # Logged so the fields Grow returns for token charges can be checked in the server log.
-        keys = sorted({k for d in _dicts(info) for k in d})
-        log.info("getTransactionInfo %s fields: %s", transaction_id, ", ".join(keys))
-        return info
 
     def start_card_save(self, client_id: int, customer: CustomerInfo) -> CardSaveStart:
         public = settings.public_url.rstrip("/")

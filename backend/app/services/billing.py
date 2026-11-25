@@ -27,9 +27,10 @@ from .grow import (
 log = logging.getLogger(__name__)
 
 DONE = (ChargeStatus.CHARGED, ChargeStatus.SENT)
-INVOICE_WAITING = "ממתינים לחשבונית מ-Grow. בודקים שוב לבד כל כמה דקות."
+INVOICE_WAITING = "Grow עוד לא שלח את החשבונית. כשהיא תגיע, היא תופיע כאן לבד. אפשר גם להעלות אותה."
 INVOICE_FAILED = "לא הצלחנו להפוך את החשבונית מ-Grow לתמונה. אפשר להעלות אותה ידנית."
-# How long the background check keeps asking Grow for a missing invoice.
+# How long the background check keeps looking for a missing invoice. It never asks Grow:
+# it picks up a link that came in Grow's notification and retries a download that failed.
 INVOICE_RETRY_DAYS = 14
 NOTICE_MATCH_DAYS = 60
 
@@ -268,8 +269,8 @@ def attach_invoice_by_id(charge_id: int) -> None:
 
 
 def retry_missing_invoices() -> None:
-    """Ask Grow again for invoices that haven't come: every few minutes in the first hour
-    after the charge, then every half hour, for two weeks."""
+    """Look again for invoices that haven't come: every few minutes in the first hour after
+    the charge, then every half hour, for two weeks."""
     now = _now()
     with SessionLocal() as db:
         rows = db.scalars(
