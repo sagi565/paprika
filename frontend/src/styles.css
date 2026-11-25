@@ -574,13 +574,14 @@ textarea {
 
 .strip {
   display: flex;
-  gap: 3px;
+  /* Gaps take at most ~30% of the width, so many cells shrink instead of overflowing the card. */
+  gap: min(3px, calc(30% / var(--n, 1)));
   height: 36px;
   margin-top: 20px;
 }
 .strip-cell {
   flex: 1 1 0;
-  min-width: 3px;
+  min-width: 0;
   border-radius: 5px;
   transition: background-color 0.35s var(--ease-out), transform 0.15s var(--ease-out);
 }
@@ -2238,7 +2239,7 @@ label.btn.is-disabled {
   }
   .strip {
     height: 30px;
-    gap: 2px;
+    gap: min(2px, calc(30% / var(--n, 1)));
     margin-top: 16px;
   }
   .strip-cell {

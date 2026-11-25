@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 /** Where a kindergarten stands this month, from not charged yet to invoice sent. */
 export type StripStatus = "sent" | "charged" | "processing" | "failed" | "pending";
@@ -40,7 +40,8 @@ export function MonthStrip({ cells }: { cells: StripCell[] }) {
     .map((s) => `${STRIP_LABEL[s]} ${counts[s]}`)
     .join(", ");
   return (
-    <div className="strip" role="img" aria-label={summary}>
+    // --n lets the gap shrink with the cell count, so 100+ kindergartens still fit a phone.
+    <div className="strip" role="img" aria-label={summary} style={{ "--n": sorted.length } as CSSProperties}>
       {sorted.map((c) => (
         <span
           key={c.key}

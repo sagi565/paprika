@@ -1,4 +1,8 @@
+# script-src 'self': only our own bundle runs. It also keeps Netlify's injected
+# "Powered by Netlify" badge from rendering (its frame needs inline scripts), so
+# don't add 'unsafe-inline' here.
 /*
+  Content-Security-Policy: script-src 'self'
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: same-origin
