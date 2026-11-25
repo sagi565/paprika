@@ -35,6 +35,8 @@ class Client(Base):
     grow_card_token: Mapped[str | None] = mapped_column(String(200))
     # When the owner confirmed the kindergarten agreed to keep its card for future charges.
     card_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Grow transaction of the card-save page (the one that is approved; asked for by Grow's review).
+    grow_card_transaction_id: Mapped[str | None] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

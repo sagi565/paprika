@@ -48,6 +48,7 @@ class ClientOut(ClientIn):
 
     id: int
     has_card_token: bool
+    grow_card_transaction_id: str | None = None
     created_at: datetime
 
 
@@ -204,6 +205,8 @@ class ImportResult(BaseModel):
 class CardSaveIn(BaseModel):
     # Grow requires the customer's consent to keep the card for future charges.
     consent: bool = False
+    # ...and that the customer accepted the site's terms (/terms) before the payment page.
+    terms: bool = False
 
 
 class CardSaveOut(BaseModel):

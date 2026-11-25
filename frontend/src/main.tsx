@@ -2,11 +2,15 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { CardSaved } from "./pages/CardSaved";
+import { Terms } from "./pages/Terms";
 import "./styles.css";
 
-// /card-saved is public (Grow redirects customers there), so it skips the login gate.
-const isPublicPage = window.location.pathname === "/card-saved";
+// Public pages skip the login gate: /card-saved (Grow redirects customers there) and /terms.
+const PUBLIC_PAGES: Record<string, () => React.JSX.Element> = { "/card-saved": CardSaved, "/terms": Terms };
+const Page = PUBLIC_PAGES[window.location.pathname.replace(/\/+$/, "")] ?? App;
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>{isPublicPage ? <CardSaved /> : <App />}</React.StrictMode>,
+  <React.StrictMode>
+    <Page />
+  </React.StrictMode>,
 );

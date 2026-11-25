@@ -284,6 +284,7 @@ function ClientModal({ client, onClose, onSaved }: { client: Client | null; onCl
   const [cardUrl, setCardUrl] = useState<string | null>(null);
   const [cardBusy, setCardBusy] = useState(false);
   const [consent, setConsent] = useState(false);
+  const [terms, setTerms] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const set = <K extends keyof ClientInput>(key: K, value: ClientInput[K]) => setForm((f) => ({ ...f, [key]: value }));
@@ -452,19 +453,14 @@ function ClientModal({ client, onClose, onSaved }: { client: Client | null; onCl
                 type="button"
                 className="btn btn-sm btn-primary"
                 onClick={fillCard}
-                disabled={cardBusy || !consent}
-                title={consent ? undefined : "קודם מסמנים שהגן אישר"}
+                disabled={cardBusy || !consent || !terms}
+                title={consent && terms ? undefined : "קודם מסמנים את שני האישורים"}
               >
                 {cardBusy ? "פותח את Grow…" : cardUrl ? "פתיחה מחדש" : "מילוי כרטיס"}
               </button>
             )}
           </div>
-          {!hasCard && (
-            <label className="check">
-              <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-              {CONSENT_LABEL}
-            </label>
-          )}
+          {!hasCard && <CardChecks terms={terms} consent={consent} onTerms={setTerms} onConsent={setConsent} />}
           {cardUrl && !hasCard && (
             <div className="card-link">
               <p className="sub">
@@ -487,9 +483,43 @@ function ClientModal({ client, onClose, onSaved }: { client: Client | null; onCl
   );
 }
 
+/** Grow requires, before the payment page: accepting the terms, and consent to keep the card. */
+function CardChecks({
+  terms,
+  consent,
+  onTerms,
+  onConsent,
+  autoFocus = false,
+}: {
+  terms: boolean;
+  consent: boolean;
+  onTerms: (v: boolean) => void;
+  onConsent: (v: boolean) => void;
+  autoFocus?: boolean;
+}) {
+  return (
+    <div className="card-checks">
+      <label className="check">
+        <input type="checkbox" checked={terms} onChange={(e) => onTerms(e.target.checked)} autoFocus={autoFocus} />
+        <span>
+          הגן קרא ואישר את{" "}
+          <a href="/terms" target="_blank" rel="noopener">
+            התקנון
+          </a>
+        </span>
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={consent} onChange={(e) => onConsent(e.target.checked)} />
+        {CONSENT_LABEL}
+      </label>
+    </div>
+  );
+}
+
 /** Asks for the kindergarten's consent before opening Grow's card page from the list. */
 function CardConsentModal({ client, onClose, onConfirm }: { client: Client; onClose: () => void; onConfirm: () => void }) {
   const [consent, setConsent] = useState(false);
+  const [terms, setTerms] = useState(false);
   return (
     <Modal
       title={`מילוי כרטיס: ${client.name}`}
@@ -500,17 +530,14 @@ function CardConsentModal({ client, onClose, onConfirm }: { client: Client; onCl
           <button type="button" className="btn" onClick={onClose}>
             ביטול
           </button>
-          <button type="button" className="btn btn-primary" disabled={!consent} onClick={onConfirm}>
+          <button type="button" className="btn btn-primary" disabled={!consent || !terms} onClick={onConfirm}>
             פתיחת הדף של Grow
           </button>
         </>
       }
     >
       <div className="card-box-wrap">
-        <label className="check">
-          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} autoFocus />
-          {CONSENT_LABEL}
-        </label>
+        <CardChecks terms={terms} consent={consent} onTerms={setTerms} onConsent={setConsent} autoFocus />
         <p className="footnote">
           הדף המאובטח של Grow ייפתח בלשונית חדשה. מספר הכרטיס ות.ז מוקלדים רק שם, ולא עוברים דרך האתר הזה.
         </p>

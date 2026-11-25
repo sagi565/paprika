@@ -733,6 +733,14 @@ select {
   margin: 0;
   font-size: 14px;
 }
+.card-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.card-checks a {
+  color: var(--accent);
+}
 .card-box-wrap {
   margin-top: 20px;
   display: flex;
@@ -1477,4 +1485,36 @@ select {
   .head-actions .btn {
     flex: 1;
   }
+}
+
+/* Public terms page (/terms) */
+.terms-page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 40px 16px 80px;
+  line-height: 1.7;
+}
+.terms-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+.terms-page h1 {
+  margin: 8px 0 0;
+}
+.terms-page h2 {
+  font-size: 19px;
+  margin: 28px 0 8px;
+}
+.terms-page p,
+.terms-page ul {
+  margin: 0;
+  color: var(--ink);
+}
+.terms-page ul {
+  padding-inline-start: 22px;
+}
+.terms-page a {
+  color: var(--accent);
 }

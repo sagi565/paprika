@@ -153,7 +153,9 @@ def start_card_save(client_id: int, body: CardSaveIn | None = None, db: Session 
     """Start saving the client's card in Grow. Mock mode saves a fake token immediately;
     live mode returns a Grow page URL to fill in. The token then arrives through Grow's
     notification (routers/grow_webhook.py). Grow requires the customer's consent first."""
-    if not (body and body.consent):
+    if not (body and body.terms):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "צריך לסמן שהגן קרא ואישר את התקנון")
+    if not body.consent:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "צריך לסמן שהגן אישר לשמור את הכרטיס לחיובים עתידיים")
     client = _get_client(db, client_id)
     client.card_consent_at = datetime.now(timezone.utc)

@@ -24,6 +24,7 @@ def get_db() -> Iterator[Session]:
 NEW_COLUMNS = (
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS card_consent_at TIMESTAMPTZ",
     "ALTER TABLE charges ADD COLUMN IF NOT EXISTS grow_unique_id BIGINT",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS grow_card_transaction_id VARCHAR(100)",
 )
 
 

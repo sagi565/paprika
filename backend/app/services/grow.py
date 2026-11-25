@@ -95,6 +95,10 @@ class GrowGateway(ABC):
         """Charge a saved card. Raise ChargeFailed with a Hebrew message on decline."""
 
     @abstractmethod
+    def approve_card_save(self, data: dict) -> None:
+        """Confirm the card-save transaction (the only one the customer types a card into)."""
+
+    @abstractmethod
     def find_token_charge(self, card_token: str, unique_id: int) -> ChargeResult | None:
         """The completed transaction sent with this unique id, or None if Grow has none."""
 
@@ -146,6 +150,18 @@ def webhook_url(path: str) -> str:
 
 def dump_raw(raw: dict) -> str:
     return json.dumps(raw, ensure_ascii=False)
+
+
+def _flatten(node, prefix: str = ""):
+    """{"customFields": {"cField1": 5}} -> ("customFields[cField1]", 5), as Grow's form fields."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from _flatten(value, f"{prefix}[{key}]" if prefix else str(key))
+    elif isinstance(node, list):
+        for i, value in enumerate(node):
+            yield from _flatten(value, f"{prefix}[{i}]")
+    elif node is not None:
+        yield prefix, node
 
 
 def _dicts(node):
@@ -214,15 +230,21 @@ class LiveGrowGateway(GrowGateway):
                 "cField1": req.charge_id,
                 # Grow rejects any second request with the same value (error 1010), whatever
                 # happened to the first. A retry after an unknown outcome reuses it on purpose.
+                # Grow: send exactly one of transactionUniqueIdentifier/transactionGroupIdentifier.
                 "transactionUniqueIdentifier": req.unique_id,
-                # Not unique and never rejected; only for looking transactions up in Grow.
-                "transactionGroupIdentifier": req.charge_id,
                 # Not in the token spec; asked Grow whether invoices for token charges use it.
                 "invoiceNotifyUrl": webhook_url("invoice-notify"),
             },
         )
         raw = {k: v for k, v in data.items() if k not in ("cardToken", "processToken")}
         return ChargeResult(transaction_id=str(data.get("transactionId") or ""), raw=raw)
+
+    def approve_card_save(self, data: dict) -> None:
+        # Grow: send the pageCode and all the data received in the server update. Only for the
+        # card-save transaction; token charges are never approved.
+        fields = dict(_flatten(data))
+        fields["pageCode"] = settings.grow_page_code
+        self._post("approveTransaction", fields)
 
     def find_token_charge(self, card_token: str, unique_id: int) -> ChargeResult | None:
         # Send only one of the two identifiers: Grow returns an error if both are sent.
@@ -297,6 +319,9 @@ class MockGrowGateway(GrowGateway):
             "date": date.today().strftime("%d/%m/%Y"),
         }
         return ChargeResult(transaction_id=transaction_id, raw=raw)
+
+    def approve_card_save(self, data: dict) -> None:
+        pass
 
     def find_token_charge(self, card_token: str, unique_id: int) -> ChargeResult | None:
         return None  # mock charges never fail halfway, so there is never anything to find

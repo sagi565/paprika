@@ -55,8 +55,9 @@ note to check Grow before charging again.
 
 | Step | Grow API |
 |---|---|
-| Save a card (once per kindergarten) | `createPaymentProcess` with `chargeType=3`, `saveCardToken=1`; the page link is sent to the teacher on WhatsApp. Grow posts the token to `/api/grow/notify` (client id + HMAC in `cField1`/`cField2`). |
-| Monthly charge | `createTransactionWithToken`, `paymentType=2`; `transactionGroupIdentifier` = charge id, so Grow rejects a second successful charge of the same row |
+| Save a card (once per kindergarten) | `createPaymentProcess` with `chargeType=3`, `saveCardToken=1`; opened after ticking the terms and card-consent boxes. Grow posts the token to `/api/grow/notify` (client id + HMAC in `cField1`/`cField2`). |
+| Approve | After the card-save notification, `approveTransaction` with the pageCode and the notification data. Only for the card save; token charges are never approved |
+| Monthly charge | `createTransactionWithToken`, `paymentType=2`, with only `transactionUniqueIdentifier` (kept across a retry after an unknown outcome, so Grow refuses to charge twice; on error 1010 the earlier attempt is looked up) |
 | Invoice | Grow posts `invoiceUrl` to `/api/grow/invoice-notify`; the PDF/image is turned into the PNG sent on WhatsApp |
 
 Webhook URLs carry `?key=GROW_WEBHOOK_KEY`. Still to confirm with Grow (see TODOs in
