@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from "react";
+import { CloseIcon } from "./icons";
 
 interface Props {
   title: string;
@@ -12,7 +13,13 @@ export function Modal({ title, onClose, children, footer, wide = false }: Props)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // The page behind stays put while the dialog is open.
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = overflow;
+    };
   }, [onClose]);
 
   return (
@@ -21,7 +28,7 @@ export function Modal({ title, onClose, children, footer, wide = false }: Props)
         <header className="modal-head">
           <h2>{title}</h2>
           <button className="icon-btn" onClick={onClose} aria-label="סגירה">
-            ×
+            <CloseIcon />
           </button>
         </header>
         <div className="modal-body">{children}</div>

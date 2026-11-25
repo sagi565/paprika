@@ -55,3 +55,63 @@ export function FingerprintIcon({ size = 20 }: { size?: number }) {
     </svg>
   );
 }
+
+/** Door with an arrow leaving it; the arrow points left, the way out in a right-to-left layout. */
+export function LogoutIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg {...base} width={size} height={size}>
+      <path {...stroke} d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M9.5 16.5L5 12l4.5-4.5M5 12h10" />
+    </svg>
+  );
+}
+
+export function CloseIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg {...base} width={size} height={size}>
+      <path {...stroke} strokeWidth={2} d="M6 6l12 12M18 6L6 18" />
+    </svg>
+  );
+}
+
+export function PlusIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg {...base} width={size} height={size}>
+      <path {...stroke} strokeWidth={2.2} d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+export function UploadIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg {...base} width={size} height={size}>
+      <path {...stroke} strokeWidth={2} d="M12 15V4M7.5 8.5L12 4l4.5 4.5M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" />
+    </svg>
+  );
+}
+
+export function SearchIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg {...base} width={size} height={size}>
+      <circle {...stroke} strokeWidth={2} cx="11" cy="11" r="6.5" />
+      <path {...stroke} strokeWidth={2} d="M16 16l4 4" />
+    </svg>
+  );
+}
+
+export function AlertIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg {...base} width={size} height={size}>
+      <circle {...stroke} strokeWidth={2} cx="12" cy="12" r="9" />
+      <path {...stroke} strokeWidth={2.2} d="M12 7.5v5.5M12 16.5v.01" />
+    </svg>
+  );
+}
+
+export function CardIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg {...base} width={size} height={size}>
+      <rect {...stroke} x="3" y="5.5" width="18" height="13" rx="2.5" />
+      <path {...stroke} d="M3 10h18M7 15h3" />
+    </svg>
+  );
+}

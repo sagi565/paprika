@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { api, type Me } from "../api";
-import { Brand } from "../components/Brand";
+import { Brand, Mark } from "../components/Brand";
 import { FingerprintIcon } from "../components/icons";
 import { toast } from "../components/toast";
 import {
@@ -66,12 +66,11 @@ export function Login({ onLogin }: { onLogin: (me: Me) => void }) {
   );
 
   return (
-    <div className="login">
-      <div className="login-card">
-        <Brand large />
-        <p className="login-lead">ניהול חיובים חודשיים</p>
-        {showPassword ? (
-          <form className="login-form" onSubmit={submit}>
+    <AuthShell>
+      <h1 className="auth-title">כניסה</h1>
+      <p className="auth-lead">החיובים החודשיים של הגנים, במקום אחד.</p>
+      {showPassword ? (
+          <form className="auth-form" onSubmit={submit}>
             <label className="field">
               <span>סיסמה</span>
               <input
@@ -89,7 +88,7 @@ export function Login({ onLogin }: { onLogin: (me: Me) => void }) {
             </button>
             {supported && (
               <>
-                <p className="login-or">או</p>
+                <p className="auth-or">או</p>
                 {fingerprintButton(false)}
               </>
             )}
@@ -100,7 +99,7 @@ export function Login({ onLogin }: { onLogin: (me: Me) => void }) {
             {error && <p className="form-error">{error}</p>}
             <button
               type="button"
-              className="link-btn login-switch"
+              className="link-btn auth-switch"
               onClick={() => {
                 setShowPassword(true);
                 setError(null);
@@ -110,6 +109,20 @@ export function Login({ onLogin }: { onLogin: (me: Me) => void }) {
             </button>
           </>
         )}
+    </AuthShell>
+  );
+}
+
+/** Brand panel (paprika red) beside the form; on phones it sits on top. */
+function AuthShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="auth">
+      <div className="auth-brand">
+        <Mark className="auth-watermark" />
+        <Brand tone="reversed" size="lg" tagline />
+      </div>
+      <div className="auth-main">
+        <div className="auth-card">{children}</div>
       </div>
     </div>
   );
@@ -139,24 +152,20 @@ function PasskeyOffer({ me, onDone }: { me: Me; onDone: (me: Me) => void }) {
   };
 
   return (
-    <div className="login">
-      <div className="login-card">
-        <span className="login-icon">
-          <FingerprintIcon size={34} />
-        </span>
-        <h1 className="login-title">כניסה עם טביעת אצבע?</h1>
-        <p className="login-lead">
-          בפעם הבאה אפשר להיכנס מהמכשיר הזה עם טביעת אצבע או זיהוי פנים, בלי להקליד סיסמה.
-        </p>
-        {error && <p className="form-error">{error}</p>}
-        <button className="btn btn-primary btn-block btn-lg" onClick={enable} disabled={busy}>
-          {busy ? "מפעיל…" : "הפעלה"}
-        </button>
-        <button className="btn btn-block" onClick={skip} disabled={busy}>
-          לא עכשיו
-        </button>
-        <p className="hint">אפשר להפעיל גם אחר כך, מ״טביעת אצבע״ בראש האתר.</p>
-      </div>
-    </div>
+    <AuthShell>
+      <span className="auth-icon">
+        <FingerprintIcon size={30} />
+      </span>
+      <h1 className="auth-title">כניסה עם טביעת אצבע?</h1>
+      <p className="auth-lead">בפעם הבאה אפשר להיכנס מהמכשיר הזה עם טביעת אצבע או זיהוי פנים, בלי להקליד סיסמה.</p>
+      {error && <p className="form-error">{error}</p>}
+      <button className="btn btn-primary btn-block btn-lg" onClick={enable} disabled={busy}>
+        {busy ? "מפעיל…" : "הפעלה"}
+      </button>
+      <button className="btn btn-block" onClick={skip} disabled={busy}>
+        לא עכשיו
+      </button>
+      <p className="hint">אפשר להפעיל גם אחר כך, מ״טביעת אצבע״ בראש האתר.</p>
+    </AuthShell>
   );
 }

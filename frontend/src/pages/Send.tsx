@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type ChargeDetail } from "../api";
 import { Brand } from "../components/Brand";
+import { Chevron } from "../components/Chevron";
 import { CheckIcon, WhatsAppIcon } from "../components/icons";
 import { StatusBadge } from "../components/StatusBadge";
 import { toast, toastError } from "../components/toast";
@@ -34,7 +35,17 @@ export function Send() {
       .catch(toastError);
   }, [chargeId]);
 
-  if (!row) return <div className="boot" />;
+  if (!row) {
+    return (
+      <div className="send">
+        <div className="send-bar" />
+        <div className="send-body" aria-busy="true" aria-label="טוען">
+          <div className="sk sk-title" />
+          <div className="sk sk-invoice" />
+        </div>
+      </div>
+    );
+  }
 
   const sent = row.status === "sent";
   const canShareFile = !!file && typeof navigator.canShare === "function" && navigator.canShare({ files: [file] });
@@ -67,20 +78,24 @@ export function Send() {
 
   return (
     <div className="send">
-      <header className="send-top">
-        <Link to={backTo} className="link-btn">
-          → חזרה לחיובים
-        </Link>
-        <Brand />
+      <header className="send-bar">
+        <div className="send-bar-inner">
+          <Link to={backTo} className="back-link">
+            <Chevron direction="right" />
+            חזרה לחיובים
+          </Link>
+          <Brand tone="reversed" size="sm" />
+        </div>
       </header>
 
+      <div className="send-body">
       <div className="send-head">
-        <p className="eyebrow">{monthLabel(row.month)}</p>
         <h1>{row.client.name}</h1>
         <p className="send-meta">
+          <span>{monthLabel(row.month)}</span>
           {row.client.contact_name && <span>{row.client.contact_name}</span>}
           <span className="mono">{formatPhone(row.client.phone)}</span>
-          {row.amount != null && <span>{formatMoney(row.amount)}</span>}
+          {row.amount != null && <span className="strong">{formatMoney(row.amount)}</span>}
           <StatusBadge status={row.status} />
         </p>
       </div>
@@ -90,7 +105,7 @@ export function Send() {
           <img src={api.invoiceUrl(row.id)} alt={`חשבונית ${row.client.name}`} />
         </a>
       ) : (
-        <p className="empty card">{row.invoice_error ?? "אין עדיין תמונת חשבונית"}</p>
+        <p className="empty panel">{row.invoice_error ?? "אין עדיין תמונת חשבונית"}</p>
       )}
 
       {row.has_invoice && (
@@ -136,12 +151,14 @@ export function Send() {
             )}
             {row.next_unsent_id && (
               <button className="btn" onClick={() => navigate(`/send/${row.next_unsent_id}`)}>
-                לגן הבא ←
+                לגן הבא
+                <Chevron direction="left" />
               </button>
             )}
           </div>
-        </div>
+                </div>
       )}
+      </div>
     </div>
   );
 }

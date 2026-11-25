@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, type Client, type ClientInput, type ImportResult } from "../api";
-import { CheckIcon } from "../components/icons";
+import { CheckIcon, PlusIcon, SearchIcon, UploadIcon } from "../components/icons";
 import { Modal } from "../components/Modal";
 import { toast, toastError } from "../components/toast";
 import { formatPhone } from "../format";
@@ -55,7 +56,9 @@ export function Clients() {
   const [list, setList] = useState<Client[] | null>(null);
   const [editing, setEditing] = useState<Client | "new" | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [onlyNoCard, setOnlyNoCard] = useState(false);
+  // /clients?nocard=1 (from the home page) opens on the kindergartens that still need a card.
+  const [params] = useSearchParams();
+  const [onlyNoCard, setOnlyNoCard] = useState(() => params.get("nocard") === "1");
   const [consentFor, setConsentFor] = useState<Client | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const noCardCount = list?.filter((c) => !c.has_card_token).length ?? 0;
@@ -115,18 +118,27 @@ export function Clients() {
     }
   };
 
+  const activeCount = list?.filter((c) => c.active).length ?? 0;
+
   return (
-    <div className="stack-lg">
+    <div className="stack">
       <div className="page-head">
-        <div>
-          <p className="eyebrow">לקוחות</p>
+        <div className="page-title">
           <h1>גנים</h1>
+          {list && (
+            <p className="page-sub">
+              {activeCount} פעילים
+              {noCardCount > 0 && <span className="tone-warn"> · {noCardCount} בלי כרטיס שמור</span>}
+            </p>
+          )}
         </div>
         <div className="head-actions">
           <button className="btn" onClick={() => fileInput.current?.click()}>
+            <UploadIcon />
             ייבוא מקובץ
           </button>
           <button className="btn btn-primary" onClick={() => setEditing("new")}>
+            <PlusIcon />
             הוספת גן
           </button>
           <input
@@ -139,20 +151,34 @@ export function Clients() {
         </div>
       </div>
 
-      <section className="card">
+      <section className="panel table-panel">
         <div className="toolbar">
-          <input
-            className="search"
-            type="search"
-            placeholder="חיפוש גן, גננת או טלפון"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <div className="chips">
-            <button className={onlyNoCard ? "chip" : "chip chip-on"} onClick={() => setOnlyNoCard(false)}>
+          <label className="search">
+            <SearchIcon />
+            <input
+              type="search"
+              placeholder="חיפוש גן, גננת או טלפון"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="חיפוש"
+            />
+          </label>
+          <div className="chips" role="tablist" aria-label="סינון">
+            <button
+              role="tab"
+              aria-selected={!onlyNoCard}
+              className={onlyNoCard ? "chip" : "chip chip-on"}
+              onClick={() => setOnlyNoCard(false)}
+            >
               כל הגנים <span className="chip-count">{list?.length ?? 0}</span>
             </button>
-            <button className={onlyNoCard ? "chip chip-on" : "chip"} onClick={() => setOnlyNoCard(true)}>
+            <button
+              role="tab"
+              aria-selected={onlyNoCard}
+              className={onlyNoCard ? "chip chip-on" : "chip"}
+              onClick={() => setOnlyNoCard(true)}
+            >
+              <span className="dot st-warn" aria-hidden />
               בלי כרטיס <span className="chip-count">{noCardCount}</span>
             </button>
           </div>
@@ -163,11 +189,36 @@ export function Clients() {
         </div>
 
         {!list ? (
-          <p className="empty">טוען…</p>
+          <div className="sk-rows" aria-busy="true" aria-label="טוען">
+            {Array.from({ length: 6 }, (_, i) => (
+              <div key={i} className="sk-row">
+                <span className="sk sk-line" style={{ width: "24%" }} />
+                <span className="sk sk-line" style={{ width: "14%" }} />
+                <span className="sk sk-line" style={{ width: "12%" }} />
+              </div>
+            ))}
+          </div>
         ) : shown.length === 0 ? (
-          <p className="empty">
-            {onlyNoCard ? "לכל הגנים יש כרטיס שמור" : query ? "אין תוצאות" : "עוד אין גנים. אפשר להוסיף אחד אחד או לייבא מקובץ."}
-          </p>
+          <div className="empty">
+            {onlyNoCard ? (
+              <p>לכל הגנים יש כרטיס שמור. אפשר לחייב את כולם.</p>
+            ) : query ? (
+              <>
+                <p>אין גן שמתאים ל״{query}״.</p>
+                <button className="btn" onClick={() => setQuery("")}>
+                  ניקוי החיפוש
+                </button>
+              </>
+            ) : (
+              <>
+                <p>עוד אין גנים. מוסיפים גן אחד, או מייבאים את כל הרשימה מקובץ אקסל שנשמר כ-CSV.</p>
+                <button className="btn btn-primary" onClick={() => setEditing("new")}>
+                  <PlusIcon />
+                  הוספת גן
+                </button>
+              </>
+            )}
+          </div>
         ) : (
           <div className="grid clients-grid">
             <div className="grid-row grid-head">
@@ -193,8 +244,8 @@ export function Clients() {
                 <span className="c-phone mono">{formatPhone(c.phone)}</span>
                 <span className="c-card">
                   {c.has_card_token ? (
-                    <span className="badge badge-sent">
-                      <CheckIcon size={14} /> שמור
+                    <span className="badge badge-saved">
+                      <CheckIcon size={14} /> כרטיס שמור
                     </span>
                   ) : waiting.has(c.id) ? (
                     <span className="badge badge-processing">

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Dashboard } from "../api";
 import { Chevron } from "../components/Chevron";
+import { CardIcon, CheckIcon } from "../components/icons";
+import { cellsFromCounts, MonthBoard } from "../components/MonthBoard";
 import { RevenueChart } from "../components/RevenueChart";
 import { toastError } from "../components/toast";
 import { formatMoney, formatMoneyWhole, monthLabel, shiftMonth } from "../format";
@@ -26,161 +28,200 @@ export function Home() {
 
   const today = new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" });
 
-  if (!data) return <p className="empty">טוען…</p>;
+  if (!data) return <HomeSkeleton />;
 
   const { current, year, clients } = data;
-  const progress = current.clients ? current.charged_count / current.clients : 0;
+  const sent = Math.max(0, current.charged_count - current.to_send_count);
+  const cells = cellsFromCounts({
+    sent,
+    charged: current.to_send_count,
+    failed: current.failed_count,
+    pending: current.pending_count,
+  });
   const topMax = Math.max(1, ...data.top_clients.map((t) => t.revenue));
   const hasRevenue = data.months.some((m) => m.revenue > 0);
 
   return (
-    <div className="stack-lg">
+    <div className="stack">
       <div className="page-head">
-        <div>
-          <p className="eyebrow">{today}</p>
+        <div className="page-title">
           <h1>{greeting()}</h1>
+          <p className="page-sub">{today}</p>
         </div>
       </div>
 
-      <section className="nav-cards">
-        <Link to="/billing" className="nav-card">
-          <div className="nav-card-head">
-            <span className="eyebrow">{monthLabel(current.month)}</span>
-            <span className="nav-card-go">
-              לחיובים <Chevron direction="left" />
-            </span>
-          </div>
-          <h2>חיובים</h2>
-          <p className="nav-card-big">
-            {current.charged_count} מתוך {current.clients} חויבו
-          </p>
-          <div className="progress" aria-hidden>
-            <span style={{ width: `${progress * 100}%` }} />
-          </div>
-          <ul className="nav-card-facts">
-            <li>{current.pending_count} ממתינים לחיוב</li>
-            {current.failed_count > 0 && <li className="tone-bad">{current.failed_count} נכשלו</li>}
-            <li>{current.to_send_count} חשבוניות לשליחה</li>
-          </ul>
-        </Link>
+      <div className="home-top">
+        <MonthBoard
+          title={monthLabel(current.month)}
+          action={
+            <Link to="/billing" className="btn btn-primary">
+              לחיובים
+              <Chevron direction="left" />
+            </Link>
+          }
+          collected={formatMoneyWhole(current.charged_amount)}
+          total={formatMoneyWhole(current.total_amount)}
+          figures={[
+            { label: "לשליחה", value: String(current.to_send_count) },
+            { label: "נכשלו", value: String(current.failed_count), tone: current.failed_count ? "bad" : undefined },
+          ]}
+          cells={cells}
+          empty={
+            <>
+              עוד אין גנים לחיוב. <Link to="/clients">הוספת גנים</Link>
+            </>
+          }
+        />
 
-        <Link to="/clients" className="nav-card">
-          <div className="nav-card-head">
-            <span className="eyebrow">לקוחות</span>
-            <span className="nav-card-go">
-              לגנים <Chevron direction="left" />
-            </span>
-          </div>
+        <section className="panel clients-panel" aria-label="גנים">
           <h2>גנים</h2>
-          <p className="nav-card-big">{clients.active} גנים פעילים</p>
-          <ul className="nav-card-facts">
-            <li className={clients.without_card ? "tone-warn" : undefined}>
-              {clients.without_card ? `${clients.without_card} בלי כרטיס שמור` : "לכל הגנים יש כרטיס שמור"}
-            </li>
-            {clients.inactive > 0 && <li>{clients.inactive} לא פעילים</li>}
-          </ul>
-        </Link>
-      </section>
+          {clients.without_card ? (
+            <>
+              <div className="clients-todo">
+                <span className="clients-todo-icon">
+                  <CardIcon size={20} />
+                </span>
+                <div>
+                  <strong>
+                    {clients.without_card === 1 ? "גן אחד בלי כרטיס שמור" : `${clients.without_card} גנים בלי כרטיס שמור`}
+                  </strong>
+                  <p>בלי כרטיס שמור אי אפשר לחייב אוטומטית.</p>
+                </div>
+              </div>
+              <Link to="/clients?nocard=1" className="btn">
+                מילוי כרטיס
+                <Chevron direction="left" />
+              </Link>
+            </>
+          ) : (
+            <>
+              <div className="clients-todo clients-todo-ok">
+                <span className="clients-todo-icon">
+                  <CheckIcon size={20} />
+                </span>
+                <div>
+                  <strong>לכל הגנים יש כרטיס שמור</strong>
+                  <p>אפשר לחייב את כולם בלחיצה.</p>
+                </div>
+              </div>
+              <Link to="/clients" className="btn">
+                לרשימת הגנים
+                <Chevron direction="left" />
+              </Link>
+            </>
+          )}
+          <p className="clients-meta">
+            {clients.active} פעילים{clients.inactive > 0 && ` · ${clients.inactive} לא פעילים`}
+          </p>
+        </section>
+      </div>
 
-      <section className="stats">
-        <Stat
-          label={`הכנסות ${monthLabel(current.month)}`}
-          value={formatMoneyWhole(current.charged_amount)}
-          sub={`מתוך ${formatMoneyWhole(current.total_amount)} לחיוב`}
-        />
-        <Stat
-          label={`הכנסות ${monthLabel(shiftMonth(current.month, -1))}`}
-          value={formatMoneyWhole(current.previous_revenue)}
-          sub="החודש הקודם"
-        />
-        <Stat label={`הכנסות ${year.year}`} value={formatMoneyWhole(year.revenue)} sub="מתחילת השנה" />
-        <Stat label="ממוצע לחודש" value={formatMoneyWhole(year.average_month)} sub={`ב-${year.year}`} />
-      </section>
-
-      <section className="dash-grid">
-        <div className="card chart-card">
-          <div className="card-head">
-            <div>
-              <h2>הכנסות לפי חודש</h2>
-              <p className="sub">חיובים שעברו בהצלחה</p>
-            </div>
-            <div className="chips">
-              {RANGES.map((r) => (
-                <button key={r} className={range === r ? "chip chip-on" : "chip"} onClick={() => setRange(r)}>
-                  {r} חודשים
+      <div className="dash-grid">
+        <section className="panel chart-card">
+          <div className="panel-head">
+            <h2>הכנסות לפי חודש</h2>
+            <div className="seg-group">
+              <div className="seg" role="group" aria-label="טווח">
+                {RANGES.map((r) => (
+                  <button key={r} className={range === r ? "seg-on" : undefined} aria-pressed={range === r} onClick={() => setRange(r)}>
+                    {r} חודשים
+                  </button>
+                ))}
+              </div>
+              <div className="seg" role="group" aria-label="תצוגה">
+                <button className={view === "chart" ? "seg-on" : undefined} aria-pressed={view === "chart"} onClick={() => setView("chart")}>
+                  גרף
                 </button>
-              ))}
-              <span className="chips-sep" />
-              <button className={view === "chart" ? "chip chip-on" : "chip"} onClick={() => setView("chart")}>
-                גרף
-              </button>
-              <button className={view === "table" ? "chip chip-on" : "chip"} onClick={() => setView("table")}>
-                טבלה
-              </button>
+                <button className={view === "table" ? "seg-on" : undefined} aria-pressed={view === "table"} onClick={() => setView("table")}>
+                  טבלה
+                </button>
+              </div>
             </div>
           </div>
+
+          <dl className="figures-row">
+            <div>
+              <dt>{monthLabel(shiftMonth(current.month, -1))}</dt>
+              <dd>{formatMoneyWhole(current.previous_revenue)}</dd>
+            </div>
+            <div>
+              <dt>מתחילת {year.year}</dt>
+              <dd>{formatMoneyWhole(year.revenue)}</dd>
+            </div>
+            <div>
+              <dt>ממוצע לחודש</dt>
+              <dd>{formatMoneyWhole(year.average_month)}</dd>
+            </div>
+          </dl>
+
           {!hasRevenue ? (
-            <p className="empty">עוד אין הכנסות להצגה</p>
+            <p className="empty">כשהחיובים הראשונים יעברו, ההכנסות של כל חודש יופיעו כאן.</p>
           ) : view === "chart" ? (
             <RevenueChart data={data.months} />
           ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>חודש</th>
-                  <th>גנים שחויבו</th>
-                  <th>הכנסות</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...data.months].reverse().map((m) => (
-                  <tr key={m.month}>
-                    <td>{monthLabel(m.month)}</td>
-                    <td>{m.charged_count}</td>
-                    <td className="amount">{formatMoney(m.revenue)}</td>
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>חודש</th>
+                    <th>גנים שחויבו</th>
+                    <th>הכנסות</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        <div className="card top-card">
-          <div className="card-head">
-            <div>
-              <h2>הגנים המובילים</h2>
-              <p className="sub">הכנסות ב-{year.year}</p>
+                </thead>
+                <tbody>
+                  {[...data.months].reverse().map((m) => (
+                    <tr key={m.month}>
+                      <td>{monthLabel(m.month)}</td>
+                      <td className="num">{m.charged_count}</td>
+                      <td className="num strong">{formatMoney(m.revenue)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
+          )}
+        </section>
+
+        <section className="panel top-card">
+          <div className="panel-head">
+            <h2>הגנים המובילים</h2>
+            <span className="panel-meta">{year.year}</span>
           </div>
           {data.top_clients.length === 0 ? (
-            <p className="empty">אין עדיין נתונים</p>
+            <p className="empty">אחרי החיובים הראשונים יופיעו כאן הגנים עם ההכנסות הגבוהות בשנה.</p>
           ) : (
             <ol className="top-list">
-              {data.top_clients.map((t) => (
+              {data.top_clients.map((t, i) => (
                 <li key={t.id}>
-                  <div className="top-row">
-                    <span className="name">{t.name}</span>
-                    <span className="amount">{formatMoneyWhole(t.revenue)}</span>
-                  </div>
-                  <div className="top-bar" aria-hidden>
-                    <span style={{ width: `${(t.revenue / topMax) * 100}%` }} />
+                  <span className="top-rank">{i + 1}</span>
+                  <div className="top-body">
+                    <div className="top-row">
+                      <span className="top-name">{t.name}</span>
+                      <span className="num strong">{formatMoneyWhole(t.revenue)}</span>
+                    </div>
+                    <div className="top-bar" aria-hidden>
+                      <span style={{ width: `${(t.revenue / topMax) * 100}%` }} />
+                    </div>
                   </div>
                 </li>
               ))}
             </ol>
           )}
-        </div>
-      </section>
+        </section>
+      </div>
     </div>
   );
 }
 
-function Stat({ label, value, sub }: { label: string; value: string; sub: string }) {
+function HomeSkeleton() {
   return (
-    <div className="stat">
-      <span className="stat-label">{label}</span>
-      <span className="stat-value">{value}</span>
-      <span className="stat-sub">{sub}</span>
+    <div className="stack" aria-busy="true" aria-label="טוען">
+      <div className="sk sk-title" />
+      <div className="home-top">
+        <div className="sk sk-board" />
+        <div className="sk sk-board" />
+      </div>
+      <div className="sk sk-chart" />
     </div>
   );
 }

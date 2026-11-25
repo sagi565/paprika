@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { BrowserRouter, Link, Navigate, NavLink, Route, Routes } from "react-router-dom";
 import { api, UNAUTHORIZED_EVENT, type Me } from "./api";
 import { Brand } from "./components/Brand";
-import { GroupIcon, HomeIcon, ReceiptIcon } from "./components/icons";
+import { FingerprintIcon, GroupIcon, HomeIcon, LogoutIcon, ReceiptIcon } from "./components/icons";
 import { PasskeysModal } from "./components/PasskeysModal";
 import { Toaster } from "./components/toast";
 import { WakeNotice } from "./components/WakeNotice";
@@ -16,13 +16,17 @@ function Layout({ me, onLogout, children }: { me: Me; onLogout: () => void; chil
   const [showPasskeys, setShowPasskeys] = useState(false);
   return (
     <>
-      {me.grow_mode === "mock" && <div className="demo-strip">מצב הדגמה: החיובים והחשבוניות מדומים</div>}
+      {me.grow_mode === "mock" && (
+        <div className="demo-strip" role="note">
+          מצב הדגמה: החיובים והחשבוניות מדומים
+        </div>
+      )}
       <header className="topbar">
         <div className="topbar-inner">
-          <Link to="/" className="brand-link" aria-label="דף הבית">
-            <Brand />
+          <Link to="/" className="brand-link" aria-label="פפריקה, דף הבית">
+            <Brand tone="reversed" size="sm" />
           </Link>
-          <nav className="nav">
+          <nav className="nav" aria-label="ניווט ראשי">
             <NavLink to="/" end>
               בית
             </NavLink>
@@ -30,11 +34,13 @@ function Layout({ me, onLogout, children }: { me: Me; onLogout: () => void; chil
             <NavLink to="/clients">גנים</NavLink>
           </nav>
           <div className="topbar-actions">
-            <button className="link-btn" onClick={() => setShowPasskeys(true)}>
-              טביעת אצבע
+            <button className="top-btn" onClick={() => setShowPasskeys(true)} aria-label="טביעת אצבע">
+              <FingerprintIcon />
+              <span>טביעת אצבע</span>
             </button>
-            <button className="link-btn" onClick={onLogout}>
-              יציאה
+            <button className="top-btn" onClick={onLogout} aria-label="יציאה">
+              <LogoutIcon />
+              <span>יציאה</span>
             </button>
           </div>
         </div>
@@ -76,8 +82,8 @@ export default function App() {
 
   if (me === undefined) {
     return (
-      <div className="boot boot-center">
-        <Brand large />
+      <div className="boot">
+        <Brand size="lg" tagline />
         <WakeNotice />
       </div>
     );

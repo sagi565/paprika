@@ -2,19 +2,29 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type Charge, type MonthData } from "../api";
 import { Chevron } from "../components/Chevron";
-import { CheckIcon, WhatsAppIcon } from "../components/icons";
+import { AlertIcon, CheckIcon, SearchIcon, WhatsAppIcon } from "../components/icons";
 import { Modal } from "../components/Modal";
+import { MonthBoard, type StripCell } from "../components/MonthBoard";
 import { StatusBadge } from "../components/StatusBadge";
 import { toast, toastError } from "../components/toast";
-import { currentMonth, formatMoney, formatPhone, formatShortDateTime, monthLabel, shiftMonth } from "../format";
+import {
+  currentMonth,
+  formatMoney,
+  formatMoneyWhole,
+  formatPhone,
+  formatShortDateTime,
+  monthLabel,
+  shiftMonth,
+} from "../format";
 
 type Filter = "all" | "pending" | "failed" | "charged" | "sent";
 
+// The WhatsApp run's filters come first.
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "הכל" },
-  { key: "pending", label: "ממתינים" },
-  { key: "failed", label: "נכשלו" },
   { key: "charged", label: "לשליחה" },
+  { key: "failed", label: "נכשלו" },
+  { key: "pending", label: "ממתינים" },
   { key: "sent", label: "נשלחו" },
 ];
 
@@ -88,56 +98,76 @@ export function Billing() {
   };
 
   const s = data?.summary;
+  const cells: StripCell[] = (data?.rows ?? []).map((r) => ({ key: r.id, status: r.status, name: r.client.name }));
 
   return (
-    <div className="stack-lg">
+    <div className="stack">
       <div className="page-head">
-        <div>
-          <p className="eyebrow">חיובים חודשיים</p>
-          <div className="month-switch">
-            {/* RTL: the previous month is on the right, the next on the left. */}
-            <button className="icon-btn" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="חודש קודם">
-              <Chevron direction="right" />
+        <div className="month-switch">
+          {/* RTL: the previous month is on the right, the next on the left. */}
+          <button className="icon-btn icon-btn-ring" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="חודש קודם">
+            <Chevron direction="right" />
+          </button>
+          <h1>{monthLabel(month)}</h1>
+          <button className="icon-btn icon-btn-ring" onClick={() => setMonth(shiftMonth(month, 1))} aria-label="חודש הבא">
+            <Chevron direction="left" />
+          </button>
+          {month !== currentMonth() && (
+            <button className="btn btn-ghost btn-sm" onClick={() => setMonth(currentMonth())}>
+              לחודש הנוכחי
             </button>
-            <h1>{monthLabel(month)}</h1>
-            <button className="icon-btn" onClick={() => setMonth(shiftMonth(month, 1))} aria-label="חודש הבא">
-              <Chevron direction="left" />
-            </button>
-          </div>
+          )}
         </div>
         <button
-          className="btn btn-primary"
+          className="btn btn-primary btn-charge"
           disabled={!chargeable.length || !!s?.processing_count}
           onClick={() => setConfirming(true)}
         >
-          {s?.processing_count ? "מחייב…" : `חיוב כל הגנים (${chargeable.length})`}
+          {s?.processing_count ? (
+            <>
+              <span className="spinner" aria-hidden /> מחייב…
+            </>
+          ) : (
+            <>
+              חיוב כל הגנים <span className="btn-count">{chargeable.length}</span>
+            </>
+          )}
         </button>
       </div>
 
-      {s && (
-        <section className="stats">
-          <Stat label="סה״כ החודש" value={formatMoney(s.total_amount)} sub={`${s.clients} גנים`} />
-          <Stat
-            label="חויבו"
-            value={formatMoney(s.charged_amount)}
-            sub={`${s.charged_count} מתוך ${s.clients}`}
-            tone="ok"
-          />
-          <Stat label="נכשלו" value={String(s.failed_count)} sub="דורשים טיפול" tone={s.failed_count ? "bad" : undefined} />
-          <Stat label="חשבוניות שנשלחו" value={`${s.sent_count} / ${s.charged_count}`} sub="בוואטסאפ" />
-        </section>
+      {!s ? (
+        <div className="sk sk-board" />
+      ) : (
+        <MonthBoard
+          collected={formatMoneyWhole(s.charged_amount)}
+          total={formatMoneyWhole(s.total_amount)}
+          figures={[
+            { label: "נשלחו", value: `${s.sent_count} מתוך ${s.charged_count}` },
+            { label: "נכשלו", value: String(s.failed_count), tone: s.failed_count ? "bad" : undefined },
+            { label: "גנים", value: String(s.clients) },
+          ]}
+          cells={cells}
+          empty={
+            <>
+              עוד אין גנים לחיוב. <Link to="/clients">הוספת גנים</Link>
+            </>
+          }
+        />
       )}
 
-      <section className="card">
+      <section className="panel table-panel">
         <div className="toolbar">
-          <input
-            className="search"
-            type="search"
-            placeholder="חיפוש גן, גננת או טלפון"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <div className="chips" role="tablist">
+          <label className="search">
+            <SearchIcon />
+            <input
+              type="search"
+              placeholder="חיפוש גן, גננת או טלפון"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="חיפוש"
+            />
+          </label>
+          <div className="chips" role="tablist" aria-label="סינון לפי סטטוס">
             {FILTERS.map((f) => (
               <button
                 key={f.key}
@@ -146,6 +176,7 @@ export function Billing() {
                 className={filter === f.key ? "chip chip-on" : "chip"}
                 onClick={() => setFilter(f.key)}
               >
+                {f.key !== "all" && <span className={`dot st-${f.key}`} aria-hidden />}
                 {f.label}
                 <span className="chip-count">{(data?.rows ?? []).filter((r) => matchesFilter(r, f.key)).length}</span>
               </button>
@@ -154,13 +185,27 @@ export function Billing() {
         </div>
 
         {!data ? (
-          <p className="empty">טוען…</p>
+          <RowsSkeleton />
         ) : data.rows.length === 0 ? (
-          <p className="empty">
-            עוד אין גנים. <Link to="/clients">הוספת גנים</Link>
-          </p>
+          <div className="empty">
+            <p>עוד אין גנים בחודש הזה. כל גן פעיל נכנס לכאן אוטומטית.</p>
+            <Link to="/clients" className="btn">
+              הוספת גנים
+            </Link>
+          </div>
         ) : rows.length === 0 ? (
-          <p className="empty">אין תוצאות</p>
+          <div className="empty">
+            <p>אין גנים שמתאימים לחיפוש או לסינון.</p>
+            <button
+              className="btn"
+              onClick={() => {
+                setQuery("");
+                setFilter("all");
+              }}
+            >
+              ניקוי החיפוש
+            </button>
+          </div>
         ) : (
           <div className="grid billing-grid">
             <div className="grid-row grid-head">
@@ -185,12 +230,17 @@ export function Billing() {
   );
 }
 
-function Stat({ label, value, sub, tone }: { label: string; value: string; sub: string; tone?: "ok" | "bad" }) {
+function RowsSkeleton() {
   return (
-    <div className="stat">
-      <span className="stat-label">{label}</span>
-      <span className={tone ? `stat-value tone-${tone}` : "stat-value"}>{value}</span>
-      <span className="stat-sub">{sub}</span>
+    <div className="sk-rows" aria-busy="true" aria-label="טוען">
+      {Array.from({ length: 6 }, (_, i) => (
+        <div key={i} className="sk-row">
+          <span className="sk sk-line" style={{ width: "22%" }} />
+          <span className="sk sk-line" style={{ width: "12%" }} />
+          <span className="sk sk-line" style={{ width: "10%" }} />
+          <span className="sk sk-line" style={{ width: "14%" }} />
+        </div>
+      ))}
     </div>
   );
 }
@@ -228,7 +278,11 @@ function ChargeRow({ row, onChanged }: { row: Charge; onChanged: () => void }) {
         {(row.status === "charged" || row.status === "sent") && row.invoice_error && (
           <span className="note note-warn">{row.invoice_error}</span>
         )}
-        {row.status === "pending" && !row.client.has_card_token && <span className="note">אין כרטיס שמור</span>}
+        {row.status === "pending" && !row.client.has_card_token && (
+          <span className="note note-warn">
+            <AlertIcon size={14} /> אין כרטיס שמור
+          </span>
+        )}
       </div>
       <span className="c-date mono">{when ? formatShortDateTime(when) : "—"}</span>
       <div className="c-actions">
