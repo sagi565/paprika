@@ -18,7 +18,7 @@ from ..config import settings
 from ..db import get_db
 from ..models import Client, GrowInvoiceNotice
 from ..services import billing
-from ..services.grow import dump_raw, get_gateway, verify_card_signature
+from ..services.grow import dump_raw, verify_card_signature
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/grow", tags=["grow"])
@@ -87,11 +87,10 @@ def _redact(node):
 
 
 @router.post("/notify")
-async def grow_notify(
-    request: Request, background: BackgroundTasks, key: str = "", db: Session = Depends(get_db)
-):
-    """After the card-save page is filled in: store the card token on the client, then
-    approve that transaction (Grow requires approveTransaction for it, and only for it)."""
+async def grow_notify(request: Request, key: str = "", db: Session = Depends(get_db)):
+    """After the card-save page is filled in: store the card token on the client.
+
+    No approveTransaction: Grow says not to approve a token-only save (chargeType=3)."""
     _check_key(key)
     payload = await _read_payload(request)
     log.info("Grow notify: %s", _redact(payload))
@@ -111,18 +110,7 @@ async def grow_notify(
         client.grow_card_transaction_id = str(_find(payload, "transactionId") or "") or None
         db.commit()
         log.info("Saved Grow card token for client %s", client_id)
-        data = payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), dict) else payload
-        background.add_task(_approve, data, int(client_id))
     return OK
-
-
-def _approve(data: dict, client_id: int) -> None:
-    try:
-        get_gateway().approve_card_save(data)
-        log.info("Approved Grow card-save transaction for client %s", client_id)
-    except Exception:
-        # Grow: the transaction stands even if approveTransaction fails; log it for follow-up.
-        log.exception("approveTransaction failed for client %s", client_id)
 
 
 def _invoice_items(node) -> Iterator[dict]:
